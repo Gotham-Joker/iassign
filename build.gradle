@@ -1,0 +1,94 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.1.3'
+    id 'io.spring.dependency-management' version '1.1.3'
+}
+
+group = 'com.github'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = '17'
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'co.elastic.clients:elasticsearch-java:8.8.2'
+    implementation 'jakarta.json:jakarta.json-api:2.0.1'
+//    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.apache.kafka:kafka-streams'
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.mysql:mysql-connector-j'
+    implementation("org.apache.httpcomponents.client5:httpclient5:5.2.1")
+    implementation 'com.baomidou:mybatis-plus-boot-starter:3.5.3.2'
+    implementation 'com.github.pagehelper:pagehelper-spring-boot-starter:1.4.7'
+    implementation 'org.hibernate.validator:hibernate-validator'
+    implementation 'com.alibaba:QLExpress:3.3.2'
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+    implementation("org.redisson:redisson-spring-boot-starter:3.23.4")
+    // log4j2
+    implementation("org.springframework.boot:spring-boot-starter-log4j2")
+    implementation("cn.hutool:hutool-all:5.8.21")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    annotationProcessor 'org.projectlombok:lombok'
+    compileOnly 'org.projectlombok:lombok'
+//    developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.mockito:mockito-inline:5.2.0'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
+}
+configurations {
+    all*.exclude group: 'ch.qos.logback'
+    all*.exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+}
+
+// using file appender instead of console appender while packaging.
+tasks.getByName('processResources') {
+    doLast {
+        def logFile = file("$buildDir/resources/main/log4j2.xml")
+        if (logFile.exists()) {
+            def content = logFile.text.replaceAll("<Console[\\S\\s]+?</Console>\\s*", "")
+                    .replaceAll("<AppenderRef ref=\"Console\"/>\\s*", "")
+                    .replaceAll("<!--\\s*<AppenderRef ref=\"RollingFile\"/>\\s*-->", "<AppenderRef ref=\"RollingFile\"/>")
+            logFile.write(content, "utf-8")
+        }
+    }
+}
+build {
+    // dos2unix shell
+    doFirst {
+        fileTree(dir: "$projectDir/docker", includes: ["*.sh"]).each { file ->
+            file.write(file.text.replaceAll("\r\n", "\n"))
+        }
+    }
+    // move jar to docker directory after building
+    doLast {
+        copy {
+            def jarName = "${project.name}-${project.version}.jar"
+            from("$buildDir/libs/$jarName").into("$projectDir/docker").rename("$jarName", "${project.name}.jar")
+        }
+    }
+}
+tasks.named('test') {
+    useJUnitPlatform()
+}
+clean.doLast {
+    fileTree(dir: "$projectDir/docker", includes: ["*.jar"]).each { it.delete() }
+}
+

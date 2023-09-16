@@ -1,0 +1,85 @@
+spring:
+  application:
+    name: iassign
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 0
+      maximum-pool-size: 5
+  jackson:
+    time-zone: GMT+8
+    date-format: "yyyy-MM-dd HH:mm:ss"
+  web:
+    resources:
+      static-locations:
+        - "classpath:/META-INF/resources/"
+        - "classpath:/resources/"
+        - "classpath:/static/"
+        - "classpath:/public/"
+        - "file:${upload.path}"
+
+---
+spring:
+  config:
+    activate:
+      on-profile:
+        - dev
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: 172.16.145.130:9092
+          auto-create-topics: true
+      bindings:
+        authService-in-0: # 给authService配置主题(消费者)
+          destination: auth_refresh.topic
+  #        authService-out-0: # 生产者
+  #          destination: auth_refresh.topic
+  mail:
+    host: smtp.sina.cn
+    port: 25
+    username: gt_joker@sina.com
+    password: 5c65af1c2c219381
+    properties:
+      mail.mime.splitlongparameters: false
+  datasource:
+    url: jdbc:mysql://172.16.145.130:3306/iassign?useUnicode=true&characterEncoding=utf-8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 123456
+  data:
+    redis:
+      host: 172.16.145.130
+  elasticsearch:
+    uris: http://172.16.145.130:9200
+#    cluster:
+#      nodes: 192.168.192:6379,192.168.192:6379
+#    password: Redis123
+upload:
+  path: /tmp
+  server-url: http://localhost:8080
+# 邮件开关
+mail:
+  enabled: false
+
+iassign:
+  web-url: http://localhost:4200
+  security:
+    token-ttl: 86400
+---
+spring:
+  config:
+    activate:
+      on-profile:
+        - prod
+  datasource:
+#    url: jdbc:mysql://123.13.125.166:3306/iassign?useUnicode=true&characterEncoding=utf-8
+#    username: root
+#    password: 123456
+  elasticsearch:
+    uris: 123.12.1.216:9300,123.12.1.217:9300,123.12.1.218:9300,123.12.1.219:9300
+    username: elastic
+  data:
+    redis:
+      cluster:
+        nodes: 123.12.1.130:6379,123.12.1.131:6379,123.12.1.132:6379,123.12.1.133:6379,123.12.1.134:6379,123.12.1.135:6379

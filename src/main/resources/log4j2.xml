@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="info">
+    <Properties>
+        <Property name="logPath" value="./"/>
+        <Property name="pattern"
+                  value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ} %-5level [%traceId] [%t] [%X{instanceId}] %logger - %m%n"/>
+    </Properties>
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout charset="UTF-8" pattern="${pattern}"/>
+        </Console>
+      <!--  <RollingFile name="RollingFile" fileName="${logPath}/app.log"
+                     filePattern="${logPath}/app.%d{yyyy-MM-dd}.%i.log">
+            <PatternLayout charset="UTF-8" pattern="${pattern}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10">
+                <Delete basePath="${logPath}" maxDepth="2">
+                    <IfFileName glob="*.log"/>
+                    <IfLastModified age="7d"/>
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>-->
+
+        <!-- 动态生成日志文件：我们希望每个流程实例单独生成一个日志文件 -->
+        <routing name="routing">
+            <routes pattern="${ctx:INSTANCE_ID}">
+                <route>
+                    <RollingFile name="Rolling-${ctx:INSTANCE_ID}" fileName="${logPath}/process/${ctx:INSTANCE_ID}.log"
+                                 filePattern="${logPath}/process/${ctx:INSTANCE_ID}.%i.log">
+                        <PatternLayout charset="UTF-8" pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %m%n"/>
+                        <policies>
+                            <SizeBasedTriggeringPolicy size="200 MB"/>
+                        </policies>
+                    </RollingFile>
+                </route>
+            </routes>
+            <IdlePurgePolicy timeToLive="1" timeUnit="minutes"/>
+        </routing>
+    </Appenders>
+    <Loggers>
+        <logger name="org.mybatis" level="WARN"/>
+        <logger name="org.redisson" level="WARN"/>
+        <logger name="springfox.documentation" level="WARN"/>
+        <!--
+        因为任务日志不需要输出到总的日志文件app.log(防止app.log文件混乱)，
+        所以我们把additivity设为false，表示不跟着一起输出到root的appender
+         -->
+        <logger name="PROCESS_LOGGER" level="info" additivity="false">
+            <appender-ref ref="routing"/>
+        </logger>
+        <Root level="info">
+            <AppenderRef ref="Console"/>
+<!--            <AppenderRef ref="RollingFile"/>-->
+        </Root>
+    </Loggers>
+</Configuration>
