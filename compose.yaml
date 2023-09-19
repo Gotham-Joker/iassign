@@ -56,10 +56,20 @@ services:
 #      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092
 
   es:
-    image: elasticsearch:8.6.2
+    image: elasticsearch:8.8.2
+    container_name: es
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
     ports:
       - "9200:9200"
       - "9300:9300"
+    volumes:
+      - /tmp/ik:/usr/share/elasticsearch/plugins/ik
+  kibana:
+    image: kibana:8.8.2
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://es:9200
+    ports:
+      - 5601:5601

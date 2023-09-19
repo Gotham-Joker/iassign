@@ -5,9 +5,11 @@ import co.elastic.clients.elasticsearch._types.ElasticsearchException;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.RangeQuery;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.HitsMetadata;
+import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
 import co.elastic.clients.json.JsonData;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
@@ -16,14 +18,19 @@ import co.elastic.clients.util.ObjectBuilder;
 import com.github.authorization.UserDetails;
 import com.github.core.JsonUtil;
 import com.github.core.PageResult;
+import com.github.iassign.dto.ProcessInstanceIndexDTO;
 import com.github.iassign.entity.ProcessInstance;
 import com.github.iassign.entity.ProcessInstanceIndex;
 import com.github.iassign.entity.ProcessTask;
 import com.github.iassign.vo.ProcessInstanceIndexVO;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
+import org.redisson.Redisson;
+import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -36,24 +43,52 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
-
+@Slf4j
 @Service
 public class ProcessInstanceIndexService {
     private final ElasticsearchClient esClient;
     private final String INDEX_NAME = "process_instance";
     private final UploadService uploadService;
     private final ProcessTaskService processTaskService;
+    private final Redisson redisson;
 
     public ProcessInstanceIndexService(RestClientBuilder restClientBuilder, UploadService uploadService,
-                                       ProcessTaskService processTaskService) {
+                                       ProcessTaskService processTaskService, Redisson redisson) {
         RestClient restClient = restClientBuilder.build();
         ElasticsearchTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
         this.esClient = new ElasticsearchClient(transport);
         this.uploadService = uploadService;
         this.processTaskService = processTaskService;
+        this.redisson = redisson;
+    }
+
+    /**
+     * 项目启动以后，创建一个ES索引，并设置中文分词器
+     *
+     * @throws Exception
+     */
+    @PostConstruct
+    public void init() throws Exception {
+        RLock lock = redisson.getLock("iassign:lock:process_index_create");
+        try {
+            boolean isLock = lock.tryLock(1, 3, TimeUnit.SECONDS);
+            if (isLock) {
+                // 索引不存在的话，创建一个索引，并设置ik分词器对content字段进行分词
+                if (!esClient.indices().exists(e -> e.index(INDEX_NAME)).value()) {
+                    CreateIndexResponse createIndexResponse = esClient.indices().create(r -> r.index(INDEX_NAME)
+                            .mappings(m -> m.properties("content", f -> f.text(t -> t.analyzer("ik_max_word").searchAnalyzer("ik_smart")))));
+                    log.warn("create index result: {}", createIndexResponse);
+                }
+            }
+        } finally {
+            if (lock.isLocked() && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
     }
 
     // 插入索引
@@ -85,7 +120,7 @@ public class ProcessInstanceIndexService {
     /**
      * 分页搜索
      */
-    public PageResult<ProcessInstanceIndex> pageQuery(Integer page, Integer size, ProcessInstanceIndexVO index) throws IOException {
+    public PageResult<ProcessInstanceIndexDTO> pageQuery(Integer page, Integer size, ProcessInstanceIndexVO index, boolean highlight) throws IOException {
         // 布尔多条件搜索
         Function<BoolQuery.Builder, ObjectBuilder<BoolQuery>> boolFn = (b) -> {
             // 指定查询流程定义
@@ -190,17 +225,25 @@ public class ProcessInstanceIndexService {
         // 根据页码计算游标起始位置
         int from = (page - 1) * size;
 
-        SearchResponse<ProcessInstanceIndex> result;
+        Function<SearchRequest.Builder, ObjectBuilder<SearchRequest>> searchFn = (s) -> {
+            SearchRequest.Builder search = s.index(INDEX_NAME)
+                    // 分页
+                    .from(from).size(size)
+                    // 根据id倒叙排序
+                    .sort(sort -> sort.field(f -> f.field("id.keyword").order(SortOrder.Desc)))
+                    // 查询条件
+                    .query(q -> q.bool(boolFn));
+            // 高亮查询
+            if (highlight && StringUtils.hasText(index.content)) {
+                search.highlight(h -> h.fields("content", f -> f.matchedFields(index.content)));
+            }
+            return search;
+        };
+
+        SearchResponse<ProcessInstanceIndexDTO> result;
         // 固定查询某个流程定义
         try {
-            result = esClient.search(s -> s.index(INDEX_NAME)
-                            // 分页
-                            .from(from).size(size)
-                            // 根据id倒叙排序
-                            .sort(sort -> sort.field(f -> f.field("id.keyword").order(SortOrder.Desc)))
-                            // 查询条件
-                            .query(q -> q.bool(boolFn))
-                    , ProcessInstanceIndex.class);
+            result = esClient.search(searchFn, ProcessInstanceIndexDTO.class);
         } catch (ElasticsearchException ee) {
             int status = ee.response().status();
             if (status == 404) {
@@ -209,14 +252,21 @@ public class ProcessInstanceIndexService {
             throw ee;
         }
 
-        HitsMetadata<ProcessInstanceIndex> hits = result.hits();
+        HitsMetadata<ProcessInstanceIndexDTO> hits = result.hits();
         long total = hits.total().value();
-        List<Hit<ProcessInstanceIndex>> list = hits.hits();
+        List<Hit<ProcessInstanceIndexDTO>> list = hits.hits();
 
         // 构造分页数据
-        PageResult<ProcessInstanceIndex> pageResult = new PageResult<>();
+        PageResult<ProcessInstanceIndexDTO> pageResult = new PageResult<>();
         pageResult.list = new ArrayList<>();
-        list.forEach(i -> pageResult.list.add(i.source()));
+        list.forEach(i -> {
+            ProcessInstanceIndexDTO dto = i.source();
+            if (highlight && dto != null) {
+                dto.highlight = i.highlight().get("content");
+                dto.isHighlight = Boolean.TRUE;
+            }
+            pageResult.list.add(dto);
+        });
         pageResult.page = page;
         pageResult.size = size;
         pageResult.total = total;
@@ -233,7 +283,7 @@ public class ProcessInstanceIndexService {
      * @return
      */
     public String generateExcel(ProcessInstanceIndexVO index) throws IOException {
-        PageResult<ProcessInstanceIndex> result = pageQuery(1, 10000, index);
+        PageResult<ProcessInstanceIndexDTO> result = pageQuery(1, 10000, index, false);
         int length = result.list.size();
         File tmpFile = new File("/tmp/" + UUID.randomUUID() + ".xlsx");
         try (Workbook workbook = new SXSSFWorkbook();

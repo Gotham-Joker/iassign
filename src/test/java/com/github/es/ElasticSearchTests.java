@@ -1,23 +1,21 @@
 package com.github.es;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.mapping.TypeMapping;
 import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
-import co.elastic.clients.json.JsonData;
-import co.elastic.clients.json.JsonpMapper;
+import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.github.SpringApplicationTests;
 import com.github.core.JsonUtil;
+import com.github.iassign.dto.ProcessInstanceIndexDTO;
 import com.github.iassign.entity.ProcessInstanceIndex;
 import com.github.iassign.entity.FormInstance;
 import com.github.iassign.entity.ProcessInstance;
 import com.github.iassign.mapper.FormInstanceMapper;
 import com.github.iassign.mapper.ProcessDefinitionMapper;
 import com.github.iassign.mapper.ProcessInstanceMapper;
-import jakarta.json.stream.JsonParser;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,40 +49,11 @@ public class ElasticSearchTests extends SpringApplicationTests {
      * 创建索引映射
      */
     @Test
-    public void testCreateIndexMapping() throws IOException {
-        String processInstanceMappings = "{\n" +
-                "  \"properties\": {\n" +
-                "    \"id\": {\n" +
-                "      \"type\": \"keyword\"\n" +
-                "    },\n" +
-                "    \"definitionId\": {\n" +
-                "      \"type\": \"keyword\"\n" +
-                "    },\n" +
-                "    \"name\": {\n" +
-                "      \"type\": \"keyword\"\n" +
-                "    },\n" +
-                "    \"starter\": {\n" +
-                "      \"type\": \"keyword\"\n" +
-                "    },\n" +
-                "    \"deptName\": {\n" +
-                "      \"type\": \"keyword\"\n" +
-                "    },\n" +
-                "    \"createTime\": {\n" +
-                "      \"type\": \"long\"\n" +
-                "    },\n" +
-                "    \"content\": {\n" +
-                "      \"type\": \"text\",\n" +
-                "      \"analyzer\": \"ik_max_word\",\n" +
-                "      \"search_analyzer\": \"ik_smart\"\n" +
-                "    }\n" +
-                "  }\n" +
-                "}";
-        JsonpMapper jsonpMapper = esClient._jsonpMapper();
-        try (StringReader sr = new StringReader(processInstanceMappings);
-             JsonParser parser = jsonpMapper.jsonProvider().createParser(sr)) {
-            esClient.indices().create(r -> r.index("process_instance")
-                    .mappings(TypeMapping._DESERIALIZER.deserialize(parser, jsonpMapper))
-            );
+    public void testUpdateIndexMapping() throws IOException {
+        // 索引不存在的话，创建一个索引，并把content字段设置为ik分词器
+        if (!esClient.indices().exists(e -> e.index("process_instance")).value()) {
+            CreateIndexResponse createIndexResponse = esClient.indices().create(r -> r.index("process_instance")
+                    .mappings(m -> m.properties("content", f -> f.text(t -> t.analyzer("ik_max_word").searchAnalyzer("ik_smart")))));
         }
 
     }
@@ -96,7 +65,7 @@ public class ElasticSearchTests extends SpringApplicationTests {
     public void testInsertIndex() throws IOException {
         // 模拟定时扫描
         // 扫描到其中一条申请
-        ProcessInstance processInstance = processInstanceMapper.selectById("1690218632980283393");
+        ProcessInstance processInstance = processInstanceMapper.selectOne(null);
         // 取出申请表
         FormInstance formInstance = formInstanceMapper.selectById(processInstance.formInstanceId);
         String variables = formInstance.variables;
@@ -106,7 +75,7 @@ public class ElasticSearchTests extends SpringApplicationTests {
         index.name = processInstance.name;
         index.definitionId = processInstance.definitionId;
         index.starter = processInstance.starter;
-        index.deptName = "金融科技部";
+        index.deptName = "科技部";
         index.createTime = processInstance.createTime;
         index.variables = variablesMap;
         if (!CollectionUtils.isEmpty(variablesMap)) {
@@ -124,18 +93,17 @@ public class ElasticSearchTests extends SpringApplicationTests {
 
     @Test
     public void testSearch() throws IOException {
-        SearchResponse<ProcessInstanceIndex> response = esClient.search(s -> s
+        SearchResponse<ProcessInstanceIndexDTO> response = esClient.search(s -> s
                         .index("process_instance")
-                        .query(q -> q.bool(b -> b.must(m -> m.term(t -> t.field("deptName").value("金融科技部")))
-                                        .must(m -> m.match(ma -> ma.field("content").query("公司贷款")))
-                                        .filter(f -> f.range(r -> r.field("createTime").gte(JsonData.of(1680440901000L)).lte(JsonData.of(1680440902000L))))
+                        .query(q -> q.bool(b -> b
+                                        .must(m -> m.match(ma -> ma.field("content").query("测试margin")))
                                 )
-                        )
-                , ProcessInstanceIndex.class);
-        response.hits().hits().forEach(hit -> {
-            ProcessInstanceIndex source = hit.source();
-            assert source != null;
-            System.out.println(source);
+                        ).highlight(h -> h.preTags("<em>").postTags("</em>")
+                                .fields("content",f->f.boundaryChars(";")))
+                , ProcessInstanceIndexDTO.class);
+        response.hits().hits().forEach(h->{
+            System.out.println(h.source().getContent());
+            System.out.println(h.highlight());
         });
     }
 

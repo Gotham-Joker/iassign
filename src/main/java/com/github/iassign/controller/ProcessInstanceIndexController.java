@@ -26,6 +26,7 @@ public class ProcessInstanceIndexController {
     @PostMapping("query")
     public Result pageQuery(@RequestParam(defaultValue = "1") Integer page,
                             @RequestParam(defaultValue = "10") Integer size,
+                            @RequestParam(defaultValue = "true") Boolean highlight,
                             @RequestBody ProcessInstanceIndexVO index) throws IOException {
         /*if (!StringUtils.hasText(index.definitionId)) {
             return Result.error(422, "缺少definitionId参数");
@@ -37,7 +38,7 @@ public class ProcessInstanceIndexController {
                 .plus(1, ChronoUnit.DAYS).isBefore(LocalDateTime.ofInstant(index.createTimeLe.toInstant(), ZoneId.of("UTC+8")))) {
             return Result.error("选择的日期范围不能相差超过1个月");
         }
-        return Result.success(processInstanceIndexService.pageQuery(page, size, index));
+        return Result.success(processInstanceIndexService.pageQuery(page, size, index, highlight));
     }
 
     /**
