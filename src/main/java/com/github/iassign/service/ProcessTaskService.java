@@ -139,7 +139,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         instance.handlerName = dto.username;
         processInstanceMapper.updateById(instance);
         Logger processLogger = ProcessLogger.logger(instance.id);
-        processLogger.info("用户{}[{}]受理了任务{}[{}]", dto.username, dto.userId, task.name, task.id);
+        processLogger.info("用户{}[{}]受理了任务<{}>[{}]", dto.username, dto.userId, task.name, task.id);
         return Result.success(task);
     }
 

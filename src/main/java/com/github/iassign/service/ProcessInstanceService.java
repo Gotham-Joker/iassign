@@ -188,7 +188,7 @@ public class ProcessInstanceService {
         instance.preHandlerId = instance.handlerId;
         ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
         processInstanceMapper.updateById(instance);
-        processLogger.info("异步执行节点:{}[{}]", task.name, task.id);
+        processLogger.info("异步执行节点:<{}>[{}]", task.name, task.id);
         variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
         try {
             executableNode.execute(processLogger, variables);
