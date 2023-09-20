@@ -154,7 +154,7 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
                 // 因为设置了无限timeout，所以每次发完消息都直接关闭，让浏览器重连(证明浏览器还在运行)
 //                sseEmitter.complete();
             } catch (IOException e) {
-                log.error("站内信发送失败");
+                log.error("站内信发送失败", e);
             }
         }
     }
@@ -210,7 +210,8 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
      * @param userDetails 当前登录用户信息
      * @param task
      */
-    public void sendAssignMsg(ProcessClaimAssignDTO dto, UserDetails userDetails, ProcessTask task) {
+    @Async
+    public void sendAssignMsg(ProcessClaimAssignDTO dto, ProcessTask task, UserDetails userDetails) {
         SysMessage sysMessage = new SysMessage();
         sysMessage.toUserId = dto.userId;
         sysMessage.fromUserId = userDetails.id;
@@ -230,10 +231,10 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
      *
      * @param instance
      */
-    public void sendSuccessMsg(ProcessInstance instance) {
+    @Async
+    public void sendSuccessMsg(ProcessInstance instance, UserDetails details) {
         SysMessage sysMessage = new SysMessage();
         sysMessage.toUserId = instance.starter;
-        UserDetails details = AuthenticationContext.current().getDetails();
         sysMessage.fromUserId = details.id;
         sysMessage.fromUsername = details.username;
         sysMessage.fromUserAvatar = details.avatar;
@@ -246,10 +247,10 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
         accept(sysMessage.toUserId);
     }
 
-    public void sendRejectMsg(ProcessInstance instance, ProcessTask task) {
+    @Async
+    public void sendRejectMsg(ProcessInstance instance, ProcessTask task, UserDetails details) {
         SysMessage sysMessage = new SysMessage();
         sysMessage.toUserId = instance.starter;
-        UserDetails details = AuthenticationContext.current().getDetails();
         sysMessage.fromUserId = details.id;
         sysMessage.fromUsername = details.username;
         sysMessage.fromUserAvatar = details.avatar;

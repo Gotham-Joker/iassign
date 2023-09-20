@@ -222,7 +222,7 @@ public class ProcessService {
                 // 给申请人发送通知，被拒绝了
                 SysUser sysUser = sysUserMapper.selectById(instance.starter);
                 processMailService.sendRejectMail(currentUser, instance, task, remark, sysUser.email);
-                sysMessageService.sendRejectMsg(instance, task);
+                sysMessageService.sendRejectMsg(instance, task, AuthenticationContext.details());
                 break;
             case BACK:
                 // 退回到指定的环节
@@ -305,33 +305,27 @@ public class ProcessService {
      */
     private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, DagEdge dagEdge, ProcessInstance instance,
                               Map<String, Object> variables, Authentication authentication) {
-        threadPoolTaskExecutor.submitListenable(() -> {
-            try {
-                AuthenticationContext.setAuthentication(authentication);
-                return processInstanceService.handleExecutableNode(executableNode, dagEdge, instance, variables);
-            } finally {
-                AuthenticationContext.clearContext();
-            }
-        }).addCallback(new ListenableFutureCallback<ProcessInstance>() {
-            @Override
-            public void onFailure(Throwable ex) {
-                final Logger processLogger = ProcessLogger.logger(instance.id);
-                processLogger.error("流程运行异常", ex);
-            }
-
-            @Override
-            public void onSuccess(ProcessInstance result) {
-                if (result != null) {
-                    try {
-                        processInstanceService.updateById(instance);
-                        AuthenticationContext.setAuthentication(authentication);
-                        move(dagGraph, instance, variables);
-                    } finally {
-                        AuthenticationContext.clearContext();
+        threadPoolTaskExecutor.submitListenable(() -> processInstanceService.handleExecutableNode(executableNode, dagEdge, instance, variables))
+                .addCallback(new ListenableFutureCallback<ProcessInstance>() {
+                    @Override
+                    public void onFailure(Throwable ex) {
+                        final Logger processLogger = ProcessLogger.logger(instance.id);
+                        processLogger.error("流程运行异常", ex);
                     }
-                }
-            }
-        });
+
+                    @Override
+                    public void onSuccess(ProcessInstance result) {
+                        if (result != null) {
+                            try {
+                                processInstanceService.updateById(instance);
+                                AuthenticationContext.setAuthentication(authentication);
+                                move(dagGraph, instance, variables);
+                            } finally {
+                                AuthenticationContext.clearContext();
+                            }
+                        }
+                    }
+                });
     }
 
     /**

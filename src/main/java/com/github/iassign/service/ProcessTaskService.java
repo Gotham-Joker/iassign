@@ -169,7 +169,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         updateById(task);
         // 指派成功，通知被指派的人
         processMailService.sendAssignMail(currentUserDetails.username, dto, task);
-        sysMessageService.sendAssignMsg(dto, currentUserDetails, task);
+        sysMessageService.sendAssignMsg(dto, task, currentUserDetails);
         return Result.success(task);
     }
 

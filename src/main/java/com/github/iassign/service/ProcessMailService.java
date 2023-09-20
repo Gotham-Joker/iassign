@@ -94,8 +94,7 @@ public class ProcessMailService {
             }
             javaMailSender.send(mimeMessageHelper.getMimeMessage());
         } catch (MessagingException e) {
-            log.error("mail error", e);
-            throw new ApiException(500, "邮件发送异常");
+            log.error("邮件发生异常", e);
         }
 
     }
