@@ -29,7 +29,7 @@
             <routes pattern="${ctx:INSTANCE_ID}">
                 <route>
                     <RollingFile name="Rolling-${ctx:INSTANCE_ID}" fileName="${logPath}/process/${ctx:INSTANCE_ID}.log"
-                                 filePattern="${logPath}/process/${ctx:INSTANCE_ID}.%i.log">
+                                 filePattern="${logPath}/process/${ctx:INSTANCE_ID}.%i.log" createOnDemand="true">
                         <PatternLayout charset="UTF-8" pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %m%n"/>
                         <policies>
                             <SizeBasedTriggeringPolicy size="200 MB"/>

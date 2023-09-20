@@ -1,6 +1,5 @@
 package com.github.iassign.service;
 
-import com.github.iassign.service.UploadService;
 import com.github.authorization.AuthenticationContext;
 import com.github.base.BaseService;
 import com.github.core.ApiException;

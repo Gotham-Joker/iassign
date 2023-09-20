@@ -3,6 +3,7 @@ package com.github.es;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.DeleteResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.HighlighterEncoder;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
 import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
@@ -75,8 +76,11 @@ public class ElasticSearchTests extends SpringApplicationTests {
         index.name = processInstance.name;
         index.definitionId = processInstance.definitionId;
         index.starter = processInstance.starter;
+        index.starterName = processInstance.starterName;
         index.deptName = "科技部";
+        index.deptId = "1";
         index.createTime = processInstance.createTime;
+        index.status = processInstance.status.name();
         index.variables = variablesMap;
         if (!CollectionUtils.isEmpty(variablesMap)) {
             StringBuilder content = new StringBuilder();
@@ -99,7 +103,7 @@ public class ElasticSearchTests extends SpringApplicationTests {
                                         .must(m -> m.match(ma -> ma.field("content").query("测试margin")))
                                 )
                         ).highlight(h -> h.preTags("<em>").postTags("</em>")
-                                .fields("content",f->f.boundaryChars(";")))
+                                .fields("content",f->f.boundaryChars(";")).encoder(HighlighterEncoder.Html))
                 , ProcessInstanceIndexDTO.class);
         response.hits().hits().forEach(h->{
             System.out.println(h.source().getContent());

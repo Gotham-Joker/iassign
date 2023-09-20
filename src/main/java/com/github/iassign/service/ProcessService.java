@@ -1,6 +1,7 @@
 package com.github.iassign.service;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.github.authorization.Authentication;
 import com.github.iassign.entity.SysUser;
 import com.github.iassign.mapper.SysUserMapper;
 import com.github.authorization.AuthenticationContext;
@@ -31,7 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.concurrent.ListenableFutureCallback;
 
-import java.io.IOException;
 import java.util.*;
 
 
@@ -71,7 +71,7 @@ public class ProcessService {
      * 初始化计算器
      */
     @PostConstruct
-    public void afterPropertiesSet() throws Exception {
+    public void afterPropertiesSet() {
         // 这玩意会将DAG流程图里面写的脚本编译成字节码并缓存，可能会导致jvm中的class爆满，是否应该定期清空一下？
         expressionEvaluator = new DefaultExpressionEvaluator(applicationContext);
         // interval(8,hour).subscribe(()=>expressionEvaluator.clear())
@@ -207,7 +207,7 @@ public class ProcessService {
                     contextVariables.putAll(formVariables);
                 }
                 processTaskService.approve(task, dto);
-                processLogger.info("任务: [{}]{} 审批通过，进入下一环节", task.id, task.name);
+                processLogger.info("<{}>[{}] 审批通过，进入下一环节", task.name, task.id);
                 move(dagGraph, instance, contextVariables);
                 processMailService.sendApproveMail(currentUser, instance, task, remark);
                 break;
@@ -217,7 +217,7 @@ public class ProcessService {
                 instance.updateTime = new Date();
                 processInstanceService.updateById(instance);
                 processInstanceIndexService.updateStatus(instance);
-                processLogger.info("任务被拒绝:[{}],{}", task.id, task.name);
+                processLogger.info("审批被拒绝:<{}>[{}]", task.name, task.id);
                 // 把流程实例归档
                 // 给申请人发送通知，被拒绝了
                 SysUser sysUser = sysUserMapper.selectById(instance.starter);
@@ -260,7 +260,6 @@ public class ProcessService {
         if (instance.status != ProcessInstanceStatus.RUNNING) {
             throw new ApiException(500, "流程不能重复执行");
         }
-        final Logger processLogger = ProcessLogger.logger(instance.id);
         // 加入当前流程实例这个变量
         while (true) {
             // 判断接下来往哪里走，并取出连接线
@@ -269,54 +268,18 @@ public class ProcessService {
             DagNode dagNode = dagEdge.targetNode;
             // 移动指针，下一个节点作为当前节点
             instance.dagNodeId = dagNode.id;
-            // 每次都放入最新的实例快照到上下文中
             if (dagNode instanceof UserTaskNode) {
-                // 记录上一处理人,当前处理人应该是要等"受理"的时候才赋值,被指派人应该是"被指派"的时候才赋值
-                instance.preHandlerId = instance.handlerId;
-                instance.handlerId = ""; // 设为null的话mybatis-plus不会更新null的字段
-                instance.handlerName = "";
-                // 因为用户审批需要人操作，所以为下一个节点和用户创建好一个待办任务后就暂停
-                UserTaskNode userTaskNode = (UserTaskNode) dagNode;
-                ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.PENDING);
-                processLogger.info("进入环节:{},创建待审批任务:[{}]", task.name, task.id);
-
-                variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
-                // 授权，谁可以审批
-                Set<String> emailSet = processTaskService.authorize(instance, task, userTaskNode, variables);
-                processLogger.info("发送待审批邮件和站内信：{}", emailSet);
-                // 通知负责审批的人有新的待办任务,等他们完成任务后才继续下一步
-                processMailService.sendTodoMail(instance, emailSet);
-                sysMessageService.sendAsyncTodoMsg(instance, task, emailSet);
+                processInstanceService.handleUserTaskNode(dagNode, dagEdge, instance, variables);
                 break;
             } else if (dagNode instanceof EndNode) {
-                // 成功
-                instance.status = ProcessInstanceStatus.SUCCESS;
-                instance.dagNodeId = null;
-                instance.updateTime = new Date();
-                // 添加结束的任务
-                processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
-                processLogger.info("流程[{}]结束", instance.id);
-                // 通知发起人审批完结
-                processMailService.sendEndMail(instance);
-                sysMessageService.sendSuccessMsg(instance);
-                processInstanceIndexService.updateStatus(instance);
+                processInstanceService.handleEndNode(dagEdge, instance);
                 // TODO 把任务和流程实例迁移到历史表
                 break; // 终止
             } else if (dagNode instanceof ExecutableNode) {
-                // 遇到系统节点，先创建一个“系统任务” 提交异步任务
-                instance.preHandlerId = instance.handlerId;
-                ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
-                processInstanceService.updateById(instance);
-                processLogger.info("进入环节:{},创建任务:[{}]", task.name, task.id);
-                variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
-                executeAsync(dagGraph, (ExecutableNode) dagNode, instance, task, variables);
-                // 不要阻塞
+                executeAsync(dagGraph, (ExecutableNode) dagNode, dagEdge, instance, variables, AuthenticationContext.current());
                 return;
             } else {
-                processLogger.info("进入{}环节", dagNode.label);
-                // 创建一个任务并尝试自动完成它
-                instance.preHandlerId = instance.handlerId;
-                processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
+                processInstanceService.handleOtherNode(dagNode, dagEdge, instance);
             }
         }
         ProcessInstance recentInstance = processInstanceService.selectById(instance.id);
@@ -335,40 +298,24 @@ public class ProcessService {
      *
      * @param dagGraph
      * @param executableNode
+     * @param dagEdge
      * @param instance
-     * @param task
      * @param variables
+     * @param authentication 当前登录用户
      */
-    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessInstance instance,
-                              ProcessTask task, Map<String, Object> variables) {
-        final Logger processLogger = ProcessLogger.logger(instance.id);
+    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, DagEdge dagEdge, ProcessInstance instance,
+                              Map<String, Object> variables, Authentication authentication) {
         threadPoolTaskExecutor.submitListenable(() -> {
             try {
-                processLogger.info("异步执行系统节点:{}[{}]", task.name, task.id);
-                executableNode.execute(processLogger, variables);
-
-                // 流程是否已被撤回？如果被撤回那就没下文了，否则继续
-                ProcessInstance recentInstance = processInstanceService.selectById(instance.id);
-                if (recentInstance != null && recentInstance.status == ProcessInstanceStatus.CANCEL) {
-                    processLogger.warn("流程实例已被用户撤回，终止后续任务");
-                    return null;
-                }
-                task.status = ProcessTaskStatus.SUCCESS;
-                processTaskService.updateById(task);
-                return instance;
-            } catch (Exception e) {
-                processLogger.error("流程运行异常", e);
-                // 系统任务失败，应该回到上个环节？
-                task.status = ProcessTaskStatus.FAILED;
-                processTaskService.updateById(task);
-                instance.status = ProcessInstanceStatus.FAILED;
-                processInstanceService.updateById(instance);
-                processInstanceIndexService.updateStatus(instance);
-                return null;
+                AuthenticationContext.setAuthentication(authentication);
+                return processInstanceService.handleExecutableNode(executableNode, dagEdge, instance, variables);
+            } finally {
+                AuthenticationContext.clearContext();
             }
         }).addCallback(new ListenableFutureCallback<ProcessInstance>() {
             @Override
             public void onFailure(Throwable ex) {
+                final Logger processLogger = ProcessLogger.logger(instance.id);
                 processLogger.error("流程运行异常", ex);
             }
 
@@ -376,9 +323,11 @@ public class ProcessService {
             public void onSuccess(ProcessInstance result) {
                 if (result != null) {
                     try {
+                        processInstanceService.updateById(instance);
+                        AuthenticationContext.setAuthentication(authentication);
                         move(dagGraph, instance, variables);
-                    } catch (Exception e) {
-                        processLogger.error("流程运行异常", e);
+                    } finally {
+                        AuthenticationContext.clearContext();
                     }
                 }
             }

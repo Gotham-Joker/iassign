@@ -54,7 +54,7 @@ public class ProcessInstanceController {
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + instanceId + ".log");
         response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE);
         ServletOutputStream out = response.getOutputStream();
-        File file = new File("/tmp/process/" + instanceId + ".log");
+        File file = new File("./process/" + instanceId + ".log");
         if (!file.exists()) {
             out.write("日志文件不存在".getBytes(StandardCharsets.UTF_8));
             return;

@@ -4,17 +4,26 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.github.authorization.UserDetails;
 import com.github.core.GlobalIdGenerator;
 import com.github.core.Result;
+import com.github.iassign.Constants;
+import com.github.iassign.ProcessLogger;
+import com.github.iassign.core.dag.DagEdge;
+import com.github.iassign.core.dag.node.DagNode;
+import com.github.iassign.core.dag.node.ExecutableNode;
+import com.github.iassign.core.dag.node.UserTaskNode;
+import com.github.iassign.dto.ProcessInstanceSnapshot;
 import com.github.iassign.dto.ProcessStartDTO;
 import com.github.iassign.entity.ProcessDefinitionRu;
 import com.github.iassign.entity.ProcessInstance;
+import com.github.iassign.entity.ProcessTask;
 import com.github.iassign.enums.ProcessInstanceStatus;
+import com.github.iassign.enums.ProcessTaskStatus;
 import com.github.iassign.mapper.FormInstanceMapper;
-import com.github.iassign.mapper.ProcessDefinitionMapper;
 import com.github.iassign.mapper.ProcessDefinitionRuMapper;
 import com.github.iassign.mapper.ProcessInstanceMapper;
 import com.github.iassign.dto.ProcessInstanceDetailDTO;
 import com.github.base.BaseService;
 import com.github.core.PageResult;
+import org.slf4j.Logger;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -23,11 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class ProcessInstanceService {
-    @Autowired
-    private ProcessDefinitionMapper processDefinitionMapper;
     @Autowired
     private ProcessInstanceMapper processInstanceMapper;
     @Autowired
@@ -36,6 +44,14 @@ public class ProcessInstanceService {
     private ProcessDefinitionRuMapper processDefinitionRuMapper;
     @Autowired
     private GlobalIdGenerator globalIdGenerator;
+    @Autowired
+    private ProcessTaskService processTaskService;
+    @Autowired
+    private ProcessMailService processMailService;
+    @Autowired
+    private SysMessageService sysMessageService;
+    @Autowired
+    private ProcessInstanceIndexService processInstanceIndexService;
 
     public PageResult pageQuery(Map<String, String> params) {
         BaseService.pageHelper(params);
@@ -92,5 +108,91 @@ public class ProcessInstanceService {
 
     public void updateById(ProcessInstance instance) {
         processInstanceMapper.updateById(instance);
+    }
+
+    @Transactional
+    public void handleUserTaskNode(DagNode dagNode, DagEdge dagEdge, ProcessInstance instance, Map<String, Object> variables) {
+        Logger processLogger = ProcessLogger.logger(instance.id);
+        // 记录上一处理人,当前处理人应该是要等"受理"的时候才赋值,被指派人应该是"被指派"的时候才赋值
+        instance.preHandlerId = instance.handlerId;
+        instance.handlerId = ""; // 设为null的话mybatis-plus不会更新null的字段
+        instance.handlerName = "";
+        // 因为用户审批需要人操作，所以为下一个节点和用户创建好一个待办任务后就暂停
+        UserTaskNode userTaskNode = (UserTaskNode) dagNode;
+        ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.PENDING);
+        processLogger.info("创建待审批任务:<{}>[{}]", task.name, task.id);
+        // 每次都放入最新的实例快照到上下文中
+        variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+        // 授权，谁可以审批
+        Set<String> emailSet = processTaskService.authorize(instance, task, userTaskNode, variables);
+        processLogger.info("发送待审批邮件和站内信：{}", emailSet);
+        // 通知负责审批的人有新的待办任务,等他们完成任务后才继续下一步
+        processMailService.sendTodoMail(instance, emailSet);
+        sysMessageService.sendAsyncTodoMsg(instance, task, emailSet);
+    }
+
+    @Transactional
+    public void handleEndNode(DagEdge dagEdge, ProcessInstance instance) {
+        Logger processLogger = ProcessLogger.logger(instance.id);
+        // 成功
+        instance.status = ProcessInstanceStatus.SUCCESS;
+        instance.dagNodeId = null;
+        instance.updateTime = new Date();
+        processLogger.info("流程[{}]结束", instance.id);
+        // 通知发起人审批完结
+        processMailService.sendEndMail(instance);
+        sysMessageService.sendSuccessMsg(instance);
+        // 添加结束的任务
+        processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
+        processInstanceIndexService.updateStatus(instance);
+    }
+
+    /**
+     * 记录其他节点，例如网关节点
+     *
+     * @param dagNode
+     * @param dagEdge
+     * @param instance
+     */
+    @Transactional
+    public void handleOtherNode(DagNode dagNode, DagEdge dagEdge, ProcessInstance instance) {
+        Logger processLogger = ProcessLogger.logger(instance.id);
+        processLogger.info("进入{}环节", dagNode.label);
+        // 创建一个任务并尝试自动完成它
+        instance.preHandlerId = instance.handlerId;
+        processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
+    }
+
+    @Transactional
+    public ProcessInstance handleExecutableNode(ExecutableNode executableNode, DagEdge dagEdge, ProcessInstance instance, Map<String, Object> variables) {
+        Logger processLogger = ProcessLogger.logger(instance.id);
+        // 遇到系统节点，先创建一个“系统任务” 提交异步任务
+        instance.preHandlerId = instance.handlerId;
+        ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
+        processInstanceMapper.updateById(instance);
+        processLogger.info("异步执行节点:{}[{}]", task.name, task.id);
+        variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+        try {
+            executableNode.execute(processLogger, variables);
+        } catch (Exception e) {
+            processLogger.error("流程运行异常", e);
+            task.status = ProcessTaskStatus.FAILED;
+            task.updateTime = new Date();
+            instance.status = ProcessInstanceStatus.FAILED;
+            instance.updateTime = new Date();
+            processTaskService.updateById(task);
+            processInstanceMapper.updateById(instance);
+            return null;
+        }
+        // 流程是否已被撤回？如果被撤回那就没下文了，否则继续
+        ProcessInstance recentInstance = processInstanceMapper.selectById(instance.id);
+        if (recentInstance != null && recentInstance.status == ProcessInstanceStatus.CANCEL) {
+            processLogger.warn("流程实例已被用户撤回，终止后续任务");
+            processTaskService.cancelByInstanceId(recentInstance.id);
+            return null;
+        }
+        task.status = ProcessTaskStatus.SUCCESS;
+        processTaskService.updateById(task);
+        return instance;
     }
 }

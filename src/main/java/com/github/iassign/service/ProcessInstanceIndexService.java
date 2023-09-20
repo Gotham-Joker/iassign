@@ -7,6 +7,7 @@ import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import co.elastic.clients.elasticsearch._types.query_dsl.RangeQuery;
 import co.elastic.clients.elasticsearch.core.SearchRequest;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.HighlighterEncoder;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.HitsMetadata;
 import co.elastic.clients.elasticsearch.indices.CreateIndexResponse;
@@ -233,9 +234,9 @@ public class ProcessInstanceIndexService {
                     .sort(sort -> sort.field(f -> f.field("id.keyword").order(SortOrder.Desc)))
                     // 查询条件
                     .query(q -> q.bool(boolFn));
-            // 高亮查询
+            // 高亮查询（先转义内容中包含的html）
             if (highlight && StringUtils.hasText(index.content)) {
-                search.highlight(h -> h.fields("content", f -> f.matchedFields(index.content)));
+                search.highlight(h -> h.fields("content", f -> f.preTags("<span>").postTags("</span>")).encoder(HighlighterEncoder.Html));
             }
             return search;
         };
@@ -261,7 +262,7 @@ public class ProcessInstanceIndexService {
         pageResult.list = new ArrayList<>();
         list.forEach(i -> {
             ProcessInstanceIndexDTO dto = i.source();
-            if (highlight && dto != null) {
+            if (highlight && StringUtils.hasText(index.content) && dto != null) {
                 dto.highlight = i.highlight().get("content");
                 dto.isHighlight = Boolean.TRUE;
             }
