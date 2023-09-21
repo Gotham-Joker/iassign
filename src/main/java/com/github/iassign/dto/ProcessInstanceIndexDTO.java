@@ -1,6 +1,5 @@
 package com.github.iassign.dto;
 
-import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.github.iassign.entity.ProcessInstanceIndex;
 import lombok.Data;
 
@@ -15,8 +14,4 @@ public class ProcessInstanceIndexDTO extends ProcessInstanceIndex {
 
     }
 
-    public ProcessInstanceIndexDTO(Hit<ProcessInstanceIndex> hit) {
-        ProcessInstanceIndex source = hit.source();
-
-    }
 }

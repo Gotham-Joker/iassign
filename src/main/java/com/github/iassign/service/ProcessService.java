@@ -71,7 +71,7 @@ public class ProcessService {
      * 初始化计算器
      */
     @PostConstruct
-    public void afterPropertiesSet() {
+    public void initEvaluator() {
         // 这玩意会将DAG流程图里面写的脚本编译成字节码并缓存，可能会导致jvm中的class爆满，是否应该定期清空一下？
         expressionEvaluator = new DefaultExpressionEvaluator(applicationContext);
         // interval(8,hour).subscribe(()=>expressionEvaluator.clear())
