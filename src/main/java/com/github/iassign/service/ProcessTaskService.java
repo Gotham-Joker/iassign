@@ -248,10 +248,18 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     public Set<String> authorize(ProcessInstance instance, ProcessTask task, UserTaskNode userTaskNode, Map<String, Object> variables) {
         // 准备日志路由
         Logger processLogger = ProcessLogger.logger(instance.id);
-        // 可审批用户
-        List<String> candidateUsers = userTaskNode.candidateUsers(variables);
-        // 可审批角色
-        List<String> candidateRoles = userTaskNode.candidateRoles(variables);
+        List<String> candidateUsers;
+        List<String> candidateRoles;
+        try {
+            // 可审批用户
+            candidateUsers = userTaskNode.candidateUsers(variables);
+            // 可审批角色
+            candidateRoles = userTaskNode.candidateRoles(variables);
+        } catch (Exception e) {
+            String msg = "给下一审批环节[" + task.name + "]添加审批人时发生错误";
+            processLogger.error(msg, e);
+            throw new ApiException(500, msg);
+        }
 
         // 处理申请人可审批的场景，并替换成实际的值
         int starterIndex = candidateUsers.indexOf("{starter}");

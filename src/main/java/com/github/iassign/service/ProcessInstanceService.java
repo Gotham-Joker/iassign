@@ -114,55 +114,36 @@ public class ProcessInstanceService {
     @Transactional
     public void handleUserTaskNode(DagNode dagNode, DagEdge dagEdge, ProcessInstance instance, Map<String, Object> variables) {
         Logger processLogger = ProcessLogger.logger(instance.id);
+        // 记录上一处理人,当前处理人应该是要等"受理"的时候才赋值,被指派人应该是"被指派"的时候才赋值
+        instance.preHandlerId = instance.handlerId;
+        instance.handlerId = ""; // 设为null的话mybatis-plus不会更新null的字段
+        instance.handlerName = "";
         ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.PENDING);
-        try {
-            // 记录上一处理人,当前处理人应该是要等"受理"的时候才赋值,被指派人应该是"被指派"的时候才赋值
-            instance.preHandlerId = instance.handlerId;
-            instance.handlerId = ""; // 设为null的话mybatis-plus不会更新null的字段
-            instance.handlerName = "";
-            // 因为用户审批需要人操作，所以为下一个节点和用户创建好一个待办任务后就暂停
-            processLogger.info("创建待审批任务:<{}>[{}]", task.name, task.id);
-            // 每次都放入最新的实例快照到上下文中
-            variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
-            // 授权，谁可以审批
-            Set<String> emailSet = processTaskService.authorize(instance, task, (UserTaskNode) dagNode, variables);
-            processLogger.info("发送待审批邮件和站内信：{}", emailSet);
-            // 通知负责审批的人有新的待办任务,等他们完成任务后才继续下一步
-            processMailService.sendTodoMail(instance, emailSet);
-            sysMessageService.sendAsyncTodoMsg(instance, task, emailSet);
-        } catch (Exception e) {
-            processLogger.error("创建任务" + dagNode.label + "失败", e);
-            task.status = ProcessTaskStatus.FAILED;
-            task.updateTime = new Date();
-            instance.status = ProcessInstanceStatus.FAILED;
-            processTaskService.updateById(task);
-            processInstanceMapper.updateById(instance);
-        }
+        processLogger.info("创建待审批任务:<{}>[{}]", task.name, task.id);
+        // 因为用户审批需要人操作，所以为下一个节点和用户创建好一个待办任务后就暂停
+        // 每次都放入最新的实例快照到上下文中
+        variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+        // 授权，谁可以审批
+        Set<String> emailSet = processTaskService.authorize(instance, task, (UserTaskNode) dagNode, variables);
+        processLogger.info("发送待审批邮件和站内信：{}", emailSet);
+        // 通知负责审批的人有新的待办任务,等他们完成任务后才继续下一步
+        processMailService.sendTodoMail(instance, emailSet);
+        sysMessageService.sendAsyncTodoMsg(instance, task, emailSet);
     }
 
     @Transactional
     public void handleEndNode(DagEdge dagEdge, ProcessInstance instance) {
         Logger processLogger = ProcessLogger.logger(instance.id);
         // 添加结束任务
-        ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
-        try {
-            // 成功
-            instance.status = ProcessInstanceStatus.SUCCESS;
-            instance.dagNodeId = null;
-            instance.updateTime = new Date();
-            processLogger.info("流程[{}]结束", instance.id);
-            // 通知发起人审批完结
-            processMailService.sendEndMail(instance);
-            sysMessageService.sendSuccessMsg(instance, AuthenticationContext.details());
-            processInstanceIndexService.updateStatus(instance);
-        } catch (Exception e) {
-            processLogger.error("尝试完结任务时出现错误", e);
-            task.status = ProcessTaskStatus.FAILED;
-            task.updateTime = new Date();
-            instance.status = ProcessInstanceStatus.FAILED;
-            processTaskService.updateById(task);
-            processInstanceMapper.updateById(instance);
-        }
+        processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.SUCCESS);
+        instance.status = ProcessInstanceStatus.SUCCESS;
+        instance.dagNodeId = null;
+        instance.updateTime = new Date();
+        processLogger.info("流程[{}]结束", instance.id);
+        // 通知发起人审批完结
+        processMailService.sendEndMail(instance);
+        sysMessageService.sendSuccessMsg(instance, AuthenticationContext.details());
+        processInstanceIndexService.updateStatus(instance);
     }
 
     /**

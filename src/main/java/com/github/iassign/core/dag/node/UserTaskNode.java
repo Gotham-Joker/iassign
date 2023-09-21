@@ -48,7 +48,7 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
      *
      * @param variables
      */
-    public List<String> candidateUsers(Map<String, Object> variables) {
+    public List<String> candidateUsers(Map<String, Object> variables) throws Exception {
         return candidates(variables, userScript, userList);
     }
 
@@ -58,20 +58,15 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
      *
      * @param variables
      */
-    public List<String> candidateRoles(Map<String, Object> variables) {
+    public List<String> candidateRoles(Map<String, Object> variables) throws Exception {
         return candidates(variables, roleScript, roleList);
     }
 
     private List<String> candidates(Map<String, Object> variables,
-                                    String expression, List<String> defaultList) {
+                                    String expression, List<String> defaultList) throws Exception {
         List<String> list = null;
         if (StringUtils.hasText(expression)) {
-            Object result;
-            try {
-                result = expressionEvaluator.evaluate(expression, variables);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            Object result = expressionEvaluator.evaluate(expression, variables);
             if (result instanceof String) {
                 list = Collections.singletonList((String) result);
             } else if (result instanceof List) {
