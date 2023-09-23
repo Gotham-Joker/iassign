@@ -34,7 +34,7 @@ public class SysRoleController extends QueryController<SysRole> {
     }
 
     @DeleteMapping
-    public Result delete(@RequestParam("id") Integer id) {
+    public Result delete(@RequestParam("id") String id) {
         sysRoleService.delete(id);
         return Result.success();
     }

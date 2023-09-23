@@ -14,6 +14,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.io.Serializable;
 import java.util.List;
@@ -32,7 +33,8 @@ public class SysRoleService extends BaseService<SysRole> {
     @Transactional(rollbackFor = Exception.class)
     public void save(SysRoleRequest request) {
         SysRole sysRole = new SysRole();
-        sysRole.setName(request.getName());
+        sysRole.id = StringUtils.hasText(request.id) ? request.id : null;
+        sysRole.name = request.name;
         baseMapper.insert(sysRole);
         // 绑定权限
         if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {

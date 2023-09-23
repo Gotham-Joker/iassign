@@ -56,7 +56,7 @@ public class SysUserService extends BaseService<SysUser> {
     @Transactional(rollbackFor = Exception.class)
     public void bindRoles(String id, Collection<String> roleIds) {
         //先解绑角色
-        sysUserMapper.unBindRoles(id);
+        sysUserMapper.unBindRoles(id, null);
         if (roleIds != null && !roleIds.isEmpty()) {
             sysUserMapper.bindRoles(id, roleIds);
         }
@@ -68,7 +68,7 @@ public class SysUserService extends BaseService<SysUser> {
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteById(String id) {
-        sysUserMapper.unBindRoles(id);
+        sysUserMapper.unBindRoles(id, null);
         sysUserMapper.deleteById(id);
     }
 

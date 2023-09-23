@@ -23,17 +23,25 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     int bindRoles(@Param("sysUserId") String sysUserId, @Param("roleIds") Collection<String> roleIds);
 
     //解绑角色
-    @Delete("delete from sys_user_role where user_id = #{sysUserId}")
-    int unBindRoles(@Param("sysUserId") String sysUserId);
+    @Delete({"<script>",
+            "delete from sys_user_role where user_id = #{sysUserId} ",
+            "<if test='roleIds!=null and !roleIds.isEmpty()'>",
+            " and role_id in ",
+            "<foreach collection='roleIds' item='item' separator=',' open='(' close=')'> ",
+            "#{item}",
+            "</foreach> ",
+            "</if>",
+            "</script>"})
+    int unBindRoles(@Param("sysUserId") String sysUserId, @Param("roleIds") Collection<String> roleIds);
 
     /**
-     * 查找部门主管
+     * 根据角色ID查找
      *
-     * @param deptId
+     * @param roleId
      * @return
      */
     @Select({"select * from sys_user u where u.dept_id=#{deptId} ",
-            "and exists(select 1 from sys_user_role ur where ur.role_id='1' and u.id=ur.user_id)"})
-    List<SysUser> selectMasters(@Param("deptId") String deptId);
+            "and exists(select 1 from sys_user_role ur where ur.role_id=#{roleId} and u.id=ur.user_id)"})
+    List<SysUser> selectByRoleId(@Param("roleId") String roleId);
 
 }
