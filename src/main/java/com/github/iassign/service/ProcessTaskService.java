@@ -286,6 +286,22 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * @param emailSet
      */
     private void authorizeRoles(ProcessTask task, List<String> candidateRoles, Set<String> emailSet, Logger processLogger) {
+        // 处理“上一处理人主管”审批的场景，并找出成实际主管
+        int masterIndex = candidateRoles.indexOf("{master}");
+        if (masterIndex != -1) {
+            candidateRoles.remove(masterIndex);
+            SysUser sysUser = sysUserMapper.selectById(task.preHandlerId);
+            String masterId = sysUser.deptId + "_MA01";
+            SysRole master = sysRoleMapper.selectById(masterId);
+            if (master != null) {
+                processLogger.info("任务:<{}>[{}]，上一处理人的主管可审批:{}", task.name, task.id, master);
+                ProcessTaskAuth auth = new ProcessTaskAuth(master, task.id);
+                processTaskAuthMapper.insert(auth);
+            } else {
+                processLogger.error("上一处理人的主管不存在,程序需要查找的角色ID为:{}", masterId);
+                throw new ApiException(500, "查找上一个处理人的主管时发生错误");
+            }
+        }
         if (!candidateRoles.isEmpty()) {
             List<SysRole> roles = sysRoleMapper.selectBatchIds(candidateRoles);
             processLogger.info("任务:{}[{}]，可审批角色:{}", task.name, task.id, candidateRoles);
@@ -316,18 +332,6 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     private void authorizeUsers(ProcessTask task, List<String> candidateUsers, Set<String> emailSet, Logger processLogger) {
 
         List<SysUser> users = new ArrayList<>();
-
-        // 处理“上一处理人主管”审批的场景，并找出成实际主管
-        int masterIndex = candidateUsers.indexOf("{master}");
-        if (masterIndex != -1) {
-            candidateUsers.remove(masterIndex);
-            SysUser sysUser = sysUserMapper.selectById(task.preHandlerId);
-            List<SysUser> masters = sysUserMapper.selectMasters(sysUser.deptId);
-            processLogger.info("任务:{}[{}]，上一处理人的主管可审批:{}", task.name, task.id,
-                    masters.stream().map(SysUser::getId).collect(Collectors.toSet()));
-            users.addAll(masters);
-        }
-
         if (!candidateUsers.isEmpty()) {
             List<SysUser> sysUsers = sysUserMapper.selectBatchIds(candidateUsers);
             if (sysUsers != null) {
