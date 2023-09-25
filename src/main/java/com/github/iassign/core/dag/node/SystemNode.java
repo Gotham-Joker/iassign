@@ -4,6 +4,7 @@ package com.github.iassign.core.dag.node;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.github.core.JsonUtil;
 import com.github.iassign.core.expression.ExpressionEvaluator;
+import com.github.iassign.util.PlaceHolderUtil;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -29,6 +30,9 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
     public Integer socketTimeout;
     public Integer retry;
     public String url;
+    public String method;
+    public String header;
+    public String body;
     public String condition;
     private ExpressionEvaluator expressionEvaluator;
 
@@ -50,6 +54,12 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
             retry = retryNode == null ? 0 : retryNode.asInt(0);
             JsonNode urlNode = data.get("url");
             url = urlNode == null ? null : urlNode.asText("");
+            JsonNode methodNode = data.get("method");
+            url = methodNode == null ? null : methodNode.asText("POST");
+            JsonNode headerNode = data.get("header");
+            url = headerNode == null ? null : headerNode.asText("");
+            JsonNode bodyNode = data.get("body");
+            url = bodyNode == null ? null : bodyNode.asText("");
             JsonNode conditionNode = data.get("condition");
             condition = conditionNode == null ? null : conditionNode.asText("");
         }
@@ -57,20 +67,56 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
 
     @Override
     public void execute(Logger logger, Map<String, Object> variables) throws Exception {
+        logger.info("variables:{}", variables);
         // 发送HTTP
         if (StringUtils.hasText(url)) {
+            if (url.contains("${")) {
+                url = PlaceHolderUtil.replace(url, variables);
+            }
+            logger.info("http method:{},url:{}", method, url);
             RequestConfig config = RequestConfig.custom()
                     .setConnectionRequestTimeout(connectTimeout, TimeUnit.MILLISECONDS)
                     .setResponseTimeout(socketTimeout, TimeUnit.MILLISECONDS).build();
-
+            ClassicRequestBuilder builder;
+            switch (method) {
+                case "GET":
+                    builder = ClassicRequestBuilder.get(url);
+                    break;
+                case "PUT":
+                    builder = ClassicRequestBuilder.put(url);
+                    break;
+                case "DELETE":
+                    builder = ClassicRequestBuilder.delete(url);
+                    break;
+                case "POST":
+                default:
+                    builder = ClassicRequestBuilder.post(url);
+                    break;
+            }
+            if (StringUtils.hasText(header)) {
+                for (String h : header.split("\n")) {
+                    String[] kv = h.split(":");
+                    if (kv.length > 0) {
+                        builder.setHeader(kv[0], kv[1].trim());
+                    }
+                }
+                logger.info("http header:{}", header);
+            }
+            if (StringUtils.hasText(body)) {
+                String tmpBody = PlaceHolderUtil.replace(body, variables);
+                logger.info("http body:{}", tmpBody);
+                builder.setEntity(tmpBody);
+            }
+            ClassicHttpRequest request = builder.build();
             while (retry >= 0) {
                 try (CloseableHttpClient httpClient = HttpClients.custom().setDefaultRequestConfig(config).build()) {
-                    String json = JsonUtil.toJson(variables);
-                    logger.info("发送http post json请求: {}，json对象： {}", url, json);
-                    ClassicHttpRequest post = ClassicRequestBuilder.post(url)
-                            .setEntity(new StringEntity(json, ContentType.APPLICATION_JSON)).build();
-                    String result = httpClient.execute(post, resp -> EntityUtils.toString(resp.getEntity()));
-                    logger.info("http返回值: {}", result);
+                    String result = httpClient.execute(request, resp -> {
+                        if (resp.getCode() != 200) {
+                            logger.error("http status code[{}] != 200,ERROR", resp.getCode());
+                        }
+                        return EntityUtils.toString(resp.getEntity());
+                    });
+                    logger.info("http result: {}", result);
                     if (StringUtils.hasText(condition)) {
                         if (!result.contains(condition)) {
                             // 失败

@@ -291,7 +291,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         if (masterIndex != -1) {
             candidateRoles.remove(masterIndex);
             SysUser sysUser = sysUserMapper.selectById(task.preHandlerId);
-            String masterId = sysUser.deptId + "_MA01";
+            String masterId = sysUser.deptId + "MA01";
             SysRole master = sysRoleMapper.selectById(masterId);
             if (master != null) {
                 processLogger.info("任务:<{}>[{}]，上一处理人的主管可审批:{}", task.name, task.id, master);
