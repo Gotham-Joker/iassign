@@ -1,5 +1,6 @@
 package com.github.iassign.util;
 
+import com.github.core.JsonUtil;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 
@@ -18,39 +19,52 @@ public class PlaceHolderUtil {
      * @return
      */
     public static String replace(String str, Map<String, Object> variables) {
-        Pattern pattern = Pattern.compile("\\$\\{(?<express>[\\w.]+?)\\}");
-        String tmp = str;
-        Matcher matcher = pattern.matcher(str);
+        // json序列化占位符
+        Pattern jsonPattern = Pattern.compile("\\$\\{JSON\\((?<express>[\\w.]+?)\\)\\}");
+        Matcher matcher = jsonPattern.matcher(str);
         while (matcher.find()) {
-            String express = matcher.group("express");
-            String[] splits = express.split("\\.");
-            Object obj = variables.get(splits[0]);
-            for (int i = 1; i < splits.length - 1; i++) {
-                if (obj instanceof Map<?, ?>) {
-                    obj = ((Map<?, ?>) obj).get(splits[i]);
-                } else {
-                    String property = splits[i];
-                    Method method = ReflectionUtils.findMethod(obj.getClass(), "get" + firstCharToUppercase(property));
-                    try {
-                        method.invoke(obj, splits[i + 1]);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
+            Object result = evaluate(variables, matcher);
+            str = str.replace(matcher.group(0), JsonUtil.toJson(result));
+        }
+        // 常规的取值占位符
+        Pattern pattern = Pattern.compile("\\$\\{(?<express>[\\w.]+?)\\}");
+        matcher = pattern.matcher(str);
+        while (matcher.find()) {
+            Object result = evaluate(variables, matcher);
+            if (result == null) {
+                result = "";
+            }
+            str = str.replace(matcher.group(0), String.valueOf(result));
+        }
+        return str;
+    }
+
+    public static Object evaluate(Map<String, Object> variables, Matcher matcher) {
+        String express = matcher.group("express");
+        String[] splits = express.split("\\.");
+        Object obj = variables.get(splits[0]);
+        for (int i = 1; i < splits.length; i++) {
+            if (obj instanceof Map<?, ?>) {
+                obj = ((Map<?, ?>) obj).get(splits[i]);
+            } else {
+                String property = splits[i];
+                Method method = ReflectionUtils.findMethod(obj.getClass(), "get" + firstCharToUppercase(property));
+                try {
+                    obj = method.invoke(obj);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
             }
-            if (obj == null) {
-                obj = "";
-            }
-            tmp = tmp.replace(matcher.group(0), String.valueOf(obj));
         }
-        return tmp;
+        return obj;
     }
 
     private static String firstCharToUppercase(String property) {
         if (!StringUtils.hasText(property)) {
             return property;
         }
-        StringBuilder sb = new StringBuilder(Character.toUpperCase(property.charAt(0)));
+        StringBuilder sb = new StringBuilder();
+        sb.append(Character.toUpperCase(property.charAt(0)));
         int length = property.length();
         for (int i = 1; i < length; i++) {
             char c = property.charAt(i);

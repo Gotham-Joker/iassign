@@ -55,11 +55,11 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
             JsonNode urlNode = data.get("url");
             url = urlNode == null ? null : urlNode.asText("");
             JsonNode methodNode = data.get("method");
-            url = methodNode == null ? null : methodNode.asText("POST");
+            method = methodNode == null ? null : methodNode.asText("POST");
             JsonNode headerNode = data.get("header");
-            url = headerNode == null ? null : headerNode.asText("");
+            header = headerNode == null ? null : headerNode.asText("");
             JsonNode bodyNode = data.get("body");
-            url = bodyNode == null ? null : bodyNode.asText("");
+            body = bodyNode == null ? null : bodyNode.asText("");
             JsonNode conditionNode = data.get("condition");
             condition = conditionNode == null ? null : conditionNode.asText("");
         }
