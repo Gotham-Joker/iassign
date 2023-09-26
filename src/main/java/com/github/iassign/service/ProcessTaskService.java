@@ -75,21 +75,19 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * 还有，所谓退回到指定环节，其实是将指定环节复制一份，然后回填基本信息
      *
      * @param task
-     * @param dto
+     * @param backwardTaskId
      * @return 退回到指定的任务
      */
-    public ProcessTask back(ProcessTask task, ProcessTaskDTO dto) {
-        if (!StringUtils.hasText(dto.backwardTaskId)) {
+    public ProcessTask back(ProcessTask task, String backwardTaskId) {
+        if (!StringUtils.hasText(backwardTaskId)) {
             throw new ApiException(422, "请指定回退环节");
         }
-        task.remark = dto.safeRemark();
-        task.attachments = dto.attachments;
         // 当前任务标记为退回
         task.status = ProcessTaskStatus.BACK;
         updateById(task);
 
         // 从指定的任务复制一个新任务出来
-        ProcessTask backwardTask = processTaskMapper.selectById(dto.backwardTaskId);
+        ProcessTask backwardTask = processTaskMapper.selectById(backwardTaskId);
         ProcessTask copyTask = new ProcessTask();
         copyTask.definitionId = backwardTask.definitionId;
         copyTask.instanceId = backwardTask.instanceId;
@@ -103,16 +101,6 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         copyTask.createTime = new Date();
         processTaskMapper.insert(copyTask);
         return copyTask;
-    }
-
-    /**
-     * 直接拒绝这个任务，对应的流程实例应当取消
-     */
-    public void reject(ProcessTask task, ProcessTaskDTO dto) {
-        task.remark = dto.safeRemark();
-        task.attachments = dto.attachments;
-        task.status = ProcessTaskStatus.REJECTED;
-        updateById(task);
     }
 
     /**
@@ -171,25 +159,6 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         processMailService.sendAssignMail(currentUserDetails.username, dto, task);
         sysMessageService.sendAssignMsg(dto, task, currentUserDetails);
         return Result.success(task);
-    }
-
-    /**
-     * 同意
-     */
-    public void approve(ProcessTask task, ProcessTaskDTO dto) {
-        if (task.status != CLAIMED && task.status != ASSIGNED) {
-            throw new ApiException(500, "操作无效，此任务可能已被其他人处理，请刷新页面");
-        }
-        task.attachments = dto.attachments;
-        task.status = ProcessTaskStatus.SUCCESS;
-        if (dto.variables != null && !dto.variables.isEmpty()) {
-            ProcessVariables processVariables = new ProcessVariables();
-            processVariables.instanceId = task.instanceId;
-            processVariables.data = JsonUtil.toJson(dto.variables);
-            processVariablesService.save(processVariables);
-            task.variableId = processVariables.id;
-        }
-        updateById(task);
     }
 
     public ProcessTask createStartTask(ProcessInstance instance, StartNode startNode) {

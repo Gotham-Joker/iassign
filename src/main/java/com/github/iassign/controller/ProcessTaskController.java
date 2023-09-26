@@ -105,4 +105,11 @@ public class ProcessTaskController {
         return processTaskService.evaluatePermission(id);
     }
 
+    /**
+     * 恢复失败的作业
+     */
+    @PostMapping("recover")
+    public Result recover(@RequestParam String taskId) {
+        return Result.success(processService.recover(taskId));
+    }
 }

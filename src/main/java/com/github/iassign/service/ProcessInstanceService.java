@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.github.authorization.AuthenticationContext;
 import com.github.authorization.UserDetails;
 import com.github.core.GlobalIdGenerator;
+import com.github.core.JsonUtil;
 import com.github.core.Result;
 import com.github.iassign.Constants;
 import com.github.iassign.ProcessLogger;
@@ -16,6 +17,7 @@ import com.github.iassign.dto.ProcessStartDTO;
 import com.github.iassign.entity.ProcessDefinitionRu;
 import com.github.iassign.entity.ProcessInstance;
 import com.github.iassign.entity.ProcessTask;
+import com.github.iassign.entity.ProcessVariables;
 import com.github.iassign.enums.ProcessInstanceStatus;
 import com.github.iassign.enums.ProcessTaskStatus;
 import com.github.iassign.mapper.FormInstanceMapper;
@@ -29,6 +31,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.Date;
 import java.util.List;
@@ -53,6 +56,8 @@ public class ProcessInstanceService {
     private SysMessageService sysMessageService;
     @Autowired
     private ProcessInstanceIndexService processInstanceIndexService;
+    @Autowired
+    private ProcessVariablesService processVariablesService;
 
     public PageResult pageQuery(Map<String, String> params) {
         BaseService.pageHelper(params);
@@ -175,6 +180,12 @@ public class ProcessInstanceService {
             task.status = ProcessTaskStatus.FAILED;
             task.updateTime = new Date();
             instance.status = ProcessInstanceStatus.FAILED;
+            if (!StringUtils.hasText(task.variableId)) {
+                ProcessVariables processVariables = new ProcessVariables();
+                processVariables.data = JsonUtil.toJson(variables);
+                processVariablesService.save(processVariables);
+                task.variableId = processVariables.id;
+            }
             processTaskService.updateById(task);
             processInstanceMapper.updateById(instance);
             return null;

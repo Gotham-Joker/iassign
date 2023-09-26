@@ -30,6 +30,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import java.util.*;
@@ -185,6 +186,8 @@ public class ProcessService {
             processLogger.error("当前用户无法审批[{}]：任务已被受理，但是此用户既不是受理人也不是被指派人。", auditorId);
             throw new ApiException(500, "当前用户无法审批");
         }
+        // 设置附件
+        task.attachments = dto.attachments;
         // 设置邮件接收人并批量发送
         instance.emails = dto.emails;
 
@@ -198,7 +201,8 @@ public class ProcessService {
         }
         switch (dto.operation) {
             case APPROVE:
-                // 保存任务表单（审批人填写）
+                task.status = ProcessTaskStatus.SUCCESS;
+                // ****** 将表单变量放到上下文 ******
                 if (dto.formData != null && !dto.formData.isEmpty()) {
                     String formDefinitionId = (String) dto.formData.get("id");
                     FormInstance formInstance = formService.saveInstance(formDefinitionId, dto.formData, 1);
@@ -206,13 +210,24 @@ public class ProcessService {
                     Map<String, Object> formVariables = JsonUtil.readValue(formInstance.variables, Map.class);
                     contextVariables.putAll(formVariables);
                 }
-                processTaskService.approve(task, dto);
-                processLogger.info("<{}>[{}] 审批通过，进入下一环节", task.name, task.id);
-                move(dagGraph, instance, contextVariables);
+                // ****** 将临时变量放到上下文 ******
+                if (dto.variables != null && !dto.variables.isEmpty()) {
+                    ProcessVariables processVariables = new ProcessVariables();
+                    processVariables.instanceId = task.instanceId;
+                    processVariables.data = JsonUtil.toJson(dto.variables);
+                    processVariablesService.save(processVariables);
+                    task.variableId = processVariables.id;
+                }
+                processTaskService.updateById(task);
+                // 发送通知
                 processMailService.sendApproveMail(currentUser, instance, task, remark);
+                processLogger.info("<{}>[{}] 审批通过，进入下一环节", task.name, task.id);
+                // 继续往下执行
+                move(dagGraph, instance, contextVariables);
                 break;
             case REJECT: // 拒绝的话那流程就结束了
-                processTaskService.reject(task, dto);
+                task.status = ProcessTaskStatus.REJECTED;
+                processTaskService.updateById(task);
                 instance.status = ProcessInstanceStatus.FAILED;
                 instance.updateTime = new Date();
                 processInstanceService.updateById(instance);
@@ -226,14 +241,13 @@ public class ProcessService {
                 break;
             case BACK:
                 // 退回到指定的环节
-                ProcessTask backwardTask = processTaskService.back(task, dto);
+                ProcessTask backwardTask = processTaskService.back(task, dto.backwardTaskId);
                 // 流程实例也回退部分信息
                 instance.dagNodeId = backwardTask.dagNodeId;
                 instance.preHandlerId = backwardTask.preHandlerId;
                 instance.handlerId = ""; // 清空当前审批人信息
                 instance.handlerName = ""; // 清空当前审批人信息
                 processInstanceService.updateById(instance);
-                // TODO 流程变量preHandler之类的是不是应该放进去？
                 processLogger.info("任务回退:{}[{}] ==> 回退至:{}[{}]", task.name, task.id, backwardTask.name, backwardTask.id);
                 UserTaskNode userTaskNode = dagGraph.obtainUserTaskNode(backwardTask.dagNodeId);
                 // 授权，哪些人能收到退回的任务
@@ -307,16 +321,12 @@ public class ProcessService {
      */
     private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance,
                               Map<String, Object> variables, Authentication authentication) {
-        threadPoolTaskExecutor.submitListenable(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables))
-                .addCallback(new ListenableFutureCallback<ProcessInstance>() {
-                    @Override
-                    public void onFailure(Throwable ex) {
+        threadPoolTaskExecutor.submitCompletable(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables))
+                .whenComplete((result, err) -> {
+                    if (err != null) {
                         final Logger processLogger = ProcessLogger.logger(instance.id);
-                        processLogger.error("流程运行异常", ex);
-                    }
-
-                    @Override
-                    public void onSuccess(ProcessInstance result) {
+                        processLogger.error("流程运行异常", err);
+                    } else {
                         if (result != null) {
                             try {
                                 processInstanceService.updateById(instance);
@@ -356,5 +366,41 @@ public class ProcessService {
         processTaskService.cancelByInstanceId(processInstance.id);
         // 更新ES索引
         processInstanceIndexService.updateStatus(processInstance);
+    }
+
+    @Transactional
+    public List<ProcessTask> recover(String taskId) {
+        ProcessTask task = processTaskService.selectById(taskId);
+        if (task == null) {
+            throw new ApiException(404, "任务不存在");
+        }
+        if (task.status != ProcessTaskStatus.FAILED) {
+            throw new ApiException(500, "失败的任务才能恢复");
+        }
+        ProcessInstance instance = processInstanceService.selectById(task.instanceId);
+        if (instance.status != ProcessInstanceStatus.FAILED) {
+            throw new ApiException(500, "失败的流程才能恢复");
+        }
+        // 取出流程图
+        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
+        if (definitionRu == null) {
+            throw new ApiException(500, "恢复失败，可能是因为流程图已被管理员删除");
+        }
+        Logger processLogger = ProcessLogger.logger(instance.id);
+        DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
+        final Map context = new HashMap();
+        // 取出变量
+        if (StringUtils.hasText(task.variableId)) {
+            ProcessVariables variables = processVariablesService.selectById(task.variableId);
+            context.putAll(JsonUtil.readValue(variables.data, Map.class));
+        }
+        // 作业恢复为运行中
+        instance.status = ProcessInstanceStatus.RUNNING;
+        processInstanceService.updateById(instance);
+        DagNode dagNode = dagGraph.obtainDagNode(instance.dagNodeId);
+        Authentication authentication = AuthenticationContext.current();
+        processLogger.warn("用户[{}]在尝试恢复失败的作业", authentication.getId());
+        executeAsync(dagGraph, (ExecutableNode) dagNode, task, instance, context, authentication);
+        return processTaskService.auditListAfter(instance.id, taskId);
     }
 }
