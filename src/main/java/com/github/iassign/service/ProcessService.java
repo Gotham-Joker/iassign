@@ -276,7 +276,10 @@ public class ProcessService {
                 // TODO 把任务和流程实例迁移到历史表
                 break; // 终止
             } else if (dagNode instanceof ExecutableNode) {
-                executeAsync(dagGraph, (ExecutableNode) dagNode, dagEdge, instance, variables, AuthenticationContext.current());
+                // 遇到系统节点，先创建一个“系统任务” 提交异步任务
+                instance.preHandlerId = instance.handlerId;
+                ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
+                executeAsync(dagGraph, (ExecutableNode) dagNode, task, instance, variables, AuthenticationContext.current());
                 return;
             } else {
                 processInstanceService.handleOtherNode(dagNode, dagEdge, instance);
@@ -298,14 +301,13 @@ public class ProcessService {
      *
      * @param dagGraph
      * @param executableNode
-     * @param dagEdge
      * @param instance
      * @param variables
      * @param authentication 当前登录用户
      */
-    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, DagEdge dagEdge, ProcessInstance instance,
+    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance,
                               Map<String, Object> variables, Authentication authentication) {
-        threadPoolTaskExecutor.submitListenable(() -> processInstanceService.handleExecutableNode(executableNode, dagEdge, instance, variables))
+        threadPoolTaskExecutor.submitListenable(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables))
                 .addCallback(new ListenableFutureCallback<ProcessInstance>() {
                     @Override
                     public void onFailure(Throwable ex) {

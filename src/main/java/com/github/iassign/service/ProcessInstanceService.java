@@ -163,11 +163,8 @@ public class ProcessInstanceService {
     }
 
     @Transactional
-    public ProcessInstance handleExecutableNode(ExecutableNode executableNode, DagEdge dagEdge, ProcessInstance instance, Map<String, Object> variables) {
+    public ProcessInstance handleExecutableNode(ExecutableNode executableNode, ProcessTask task, ProcessInstance instance, Map<String, Object> variables) {
         Logger processLogger = ProcessLogger.logger(instance.id);
-        // 遇到系统节点，先创建一个“系统任务” 提交异步任务
-        instance.preHandlerId = instance.handlerId;
-        ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
         processInstanceMapper.updateById(instance);
         processLogger.info("异步执行节点:<{}>[{}]", task.name, task.id);
         variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
