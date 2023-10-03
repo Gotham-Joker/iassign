@@ -31,9 +31,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.util.concurrent.ListenableFutureCallback;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 
 /**
@@ -321,11 +321,10 @@ public class ProcessService {
      */
     private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance,
                               Map<String, Object> variables, Authentication authentication) {
-        threadPoolTaskExecutor.submitCompletable(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables))
+        CompletableFuture.supplyAsync(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables), threadPoolTaskExecutor)
                 .whenComplete((result, err) -> {
                     if (err != null) {
-                        final Logger processLogger = ProcessLogger.logger(instance.id);
-                        processLogger.error("流程运行异常", err);
+                        ProcessLogger.logger(instance.id).error("流程运行异常", err);
                     } else {
                         if (result != null) {
                             try {
