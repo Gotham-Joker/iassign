@@ -34,9 +34,9 @@ public class ProcessInstanceIndexController {
         if (index.createTimeGe == null || index.createTimeLe == null) {
             return Result.error("请选择申请日期区间");
         }
-        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(1, ChronoUnit.MONTHS)
+        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(6, ChronoUnit.MONTHS)
                 .plus(1, ChronoUnit.DAYS).isBefore(LocalDateTime.ofInstant(index.createTimeLe.toInstant(), ZoneId.of("UTC+8")))) {
-            return Result.error("选择的日期范围不能相差超过1个月");
+            return Result.error("选择的日期范围不能相差超过6个月");
         }
         return Result.success(processInstanceIndexService.pageQuery(page, size, index, highlight));
     }
@@ -52,9 +52,9 @@ public class ProcessInstanceIndexController {
         if (index.createTimeGe == null || index.createTimeLe == null) {
             return Result.error("请选择申请日期区间");
         }
-        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(1, ChronoUnit.MONTHS)
+        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(6, ChronoUnit.MONTHS)
                 .plus(1, ChronoUnit.DAYS).isBefore(LocalDateTime.ofInstant(index.createTimeLe.toInstant(), ZoneId.of("UTC+8")))) {
-            return Result.error("选择的日期范围不能相差超过1个月,且excel单次导出记录不允许超过1万条");
+            return Result.error("选择的日期范围不能相差超过6个月,且excel单次导出记录不允许超过1万条");
         }
         return Result.success(processInstanceIndexService.generateExcel(index));
     }
