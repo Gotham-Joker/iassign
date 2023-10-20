@@ -99,7 +99,8 @@ create table sys_user
 create table sys_user_role
 (
 	user_id varchar(20) null,
-	role_id varchar(20) null
+	role_id varchar(20) null,
+	primary key (user_id,role_id)
 )
 comment '用户-角色 关联表' charset=utf8mb4;
 
