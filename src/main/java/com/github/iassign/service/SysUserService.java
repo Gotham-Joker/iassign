@@ -4,25 +4,35 @@ import com.github.authorization.AuthenticationContext;
 import com.github.base.BaseService;
 import com.github.core.ApiException;
 import com.github.core.PageResult;
+import com.github.iassign.dto.RebindRoleDTO;
 import com.github.iassign.dto.SysUserRoleDTO;
+import com.github.iassign.entity.SysRole;
 import com.github.iassign.entity.SysUser;
+import com.github.iassign.mapper.SysRoleMapper;
 import com.github.iassign.mapper.SysUserMapper;
 import com.github.pagehelper.PageHelper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 public class SysUserService extends BaseService<SysUser> {
     @Autowired
     private SysUserMapper sysUserMapper;
+    @Autowired
+    private SysRoleMapper sysRoleMapper;
     @Autowired
     private UploadService uploadService;
 
@@ -103,5 +113,29 @@ public class SysUserService extends BaseService<SysUser> {
     public PageResult<SysUserRoleDTO> selectByUserRole(Integer page, Integer size, SysUserRoleDTO dto) {
         PageHelper.startPage(page, size);
         return PageResult.of(sysUserMapper.selectByUserRole(dto));
+    }
+
+    /**
+     * 重新绑定角色
+     *
+     * @param dtos
+     */
+    @Transactional
+    public void rebindRoles(List<RebindRoleDTO> dtos) {
+        for (RebindRoleDTO dto : dtos) {
+            if (StringUtils.hasText(dto.roleId)) {
+                SysRole sysRole = sysRoleMapper.selectById(dto.roleId);
+                if (sysRole == null) {
+                    log.warn("rebind role error,role is not exists:{}", dto.roleId);
+                    return;
+                }
+                if (!CollectionUtils.isEmpty(dto.delUserIds)) {
+                    dto.delUserIds.forEach(userId -> sysUserMapper.unBindRoles(userId, Collections.singleton(dto.roleId)));
+                }
+                if (!CollectionUtils.isEmpty(dto.addUserIds)) {
+                    dto.addUserIds.forEach(userId -> sysUserMapper.bindRoles(userId, Collections.singleton(dto.roleId)));
+                }
+            }
+        }
     }
 }

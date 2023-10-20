@@ -1,5 +1,6 @@
 package com.github.iassign.controller;
 
+import com.github.iassign.dto.RebindRoleDTO;
 import com.github.iassign.dto.SysUserDTO;
 import com.github.iassign.dto.SysUserRoleDTO;
 import com.github.iassign.entity.SysMessage;
@@ -139,11 +140,17 @@ public class SysController {
     /**
      * 查找某个角色下面有哪些用户
      */
-    @GetMapping("/api/role-user")
+    @GetMapping("/api/role-users")
     public Result selectByUserRole(@RequestParam(defaultValue = "1") Integer page,
                                    @RequestParam(defaultValue = "10") Integer size,
                                    SysUserRoleDTO dto) {
         return Result.success(sysUserService.selectByUserRole(page, size, dto));
+    }
+
+    @PutMapping("/api/role-users")
+    public Result rebindRoles(@RequestBody @Validated List<RebindRoleDTO> dtos) {
+        sysUserService.rebindRoles(dtos);
+        return Result.success();
     }
 
 }
