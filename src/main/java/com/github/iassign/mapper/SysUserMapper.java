@@ -1,6 +1,7 @@
 package com.github.iassign.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.github.iassign.dto.SysUserRoleDTO;
 import com.github.iassign.entity.SysUser;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -43,5 +44,17 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     @Select({"select * from sys_user u where u.dept_id=#{deptId} ",
             "and exists(select 1 from sys_user_role ur where ur.role_id=#{roleId} and u.id=ur.user_id)"})
     List<SysUser> selectByRoleId(@Param("roleId") String roleId);
+
+    @Select({"<script>",
+            "select id,username,email from sys_user <where>",
+            "<if test='id!=null and id!=\"\"'>and id=#{id}</if>",
+            "<if test='username!=null and username!=\"\"'>and username like CONCAT('%',#{username}},'%')</if>",
+            "<if test='email!=null and email!=\"\"'>and email like CONCAT('%',#{email}},'%')</if>",
+            "<if test='roleId!=null and roleId!=\"\"'>",
+            "and exists (select 1 from sys_user ur where ur.role_id=#{roleId} and ur.user_id=sys_user.id)",
+            "</if>",
+            "<where>",
+            "</script>"})
+    List<SysUserRoleDTO> selectByUserRole(SysUserRoleDTO dto);
 
 }

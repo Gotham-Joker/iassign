@@ -3,8 +3,11 @@ package com.github.iassign.service;
 import com.github.authorization.AuthenticationContext;
 import com.github.base.BaseService;
 import com.github.core.ApiException;
+import com.github.core.PageResult;
+import com.github.iassign.dto.SysUserRoleDTO;
 import com.github.iassign.entity.SysUser;
 import com.github.iassign.mapper.SysUserMapper;
+import com.github.pagehelper.PageHelper;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -95,5 +98,10 @@ public class SysUserService extends BaseService<SysUser> {
         sysUser.avatar = avatarUrl;
         sysUserMapper.updateById(sysUser);
         return avatarUrl;
+    }
+
+    public PageResult<SysUserRoleDTO> selectByUserRole(Integer page, Integer size, SysUserRoleDTO dto) {
+        PageHelper.startPage(page, size);
+        return PageResult.of(sysUserMapper.selectByUserRole(dto));
     }
 }

@@ -1,5 +1,7 @@
 package com.github.iassign.controller;
 
+import com.github.iassign.dto.SysUserDTO;
+import com.github.iassign.dto.SysUserRoleDTO;
 import com.github.iassign.entity.SysMessage;
 import com.github.iassign.service.*;
 import com.github.authorization.AuthenticationContext;
@@ -134,5 +136,14 @@ public class SysController {
         return Result.success();
     }
 
+    /**
+     * 查找某个角色下面有哪些用户
+     */
+    @GetMapping("/api/role-user")
+    public Result selectByUserRole(@RequestParam(defaultValue = "1") Integer page,
+                                   @RequestParam(defaultValue = "10") Integer size,
+                                   SysUserRoleDTO dto) {
+        return Result.success(sysUserService.selectByUserRole(page, size, dto));
+    }
 
 }
