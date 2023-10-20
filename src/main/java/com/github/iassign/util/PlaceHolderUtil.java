@@ -32,7 +32,7 @@ public class PlaceHolderUtil {
         while (matcher.find()) {
             Object result = evaluate(variables, matcher);
             if (result == null) {
-                result = "";
+                continue;
             }
             str = str.replace(matcher.group(0), String.valueOf(result));
         }
