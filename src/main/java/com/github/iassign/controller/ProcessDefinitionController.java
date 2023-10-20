@@ -92,4 +92,21 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
     public Result permission(@RequestParam String id) {
         return Result.success(processDefinitionService.findPermission(id));
     }
+
+    /**
+     * 查看流程图
+     */
+    @GetMapping("dag")
+    public Result dag(@RequestParam String id) {
+        ProcessDefinition processDefinition = processDefinitionService.selectById(id);
+        if (processDefinition == null) {
+            return Result.error(404, "流程定义不存在");
+        }
+        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(processDefinition.ruId);
+        if (definitionRu == null) {
+            return Result.error(404, "流程图不存在");
+        }
+        return Result.success(definitionRu.dag);
+    }
+
 }
