@@ -14,10 +14,7 @@ public class BearerTokenExtractor {
         if (!StringUtils.hasText(bearerToken)) {
             bearerToken = request.getParameter("token"); // 处理一些特殊情况
         }
-        if (StringUtils.hasText(bearerToken)) {
-            return bearerToken;
-        }
-        return null;
+        return bearerToken;
     }
 
 }
