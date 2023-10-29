@@ -20,6 +20,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import java.io.IOException;
 import java.io.PrintWriter;
 
@@ -45,7 +46,11 @@ public class AccessTokenFilter extends OncePerRequestFilter {
                 AuthenticationContext.setAuthentication(authentication);
                 MDC.put(Result.TRACE_ID, bearerToken);
             } else {
-                throw new AuthenticationException("invalid token");
+                String serverName = request.getServerName();
+                // 内部访问
+                if (!"localhost".equals(serverName) && !"127.0.0.1".equals(serverName)) {
+                    throw new AuthenticationException("invalid token");
+                }
             }
             String path = request.getRequestURI();
 

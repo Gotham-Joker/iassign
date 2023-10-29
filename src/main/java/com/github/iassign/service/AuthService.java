@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import jakarta.annotation.PostConstruct;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -89,15 +90,13 @@ public class AuthService {
      * @return
      */
     public Result decide(String path, String method) {
-
-        Authentication authentication = AuthenticationContext.current();
-        if (authentication.isAdmin()) {
-            return Result.success(); // 管理员不适用此原则，直接放行
-        }
-        Set<String> userPermissionMarks = authentication.getPermissions();
-
         List<ApiMatcher> matchers = directPathPermissions.get(path);
         if (!CollectionUtils.isEmpty(matchers)) { // 用户访问了敏感资源(url直接匹配)
+            Authentication authentication = AuthenticationContext.current();
+            if (authentication.isAdmin()) {
+                return Result.success(); // 管理员不适用此原则，直接放行
+            }
+            Set<String> userPermissionMarks = authentication.getPermissions();
             for (int i = 0; i < matchers.size(); i++) {
                 ApiMatcher matcher = matchers.get(i);
                 if (matcher.method == null || method.equals(matcher.method)) {
@@ -116,6 +115,11 @@ public class AuthService {
                 .min(Comparator.comparing(m -> m.pathPattern));
 
         if (matcher.isPresent()) { // 用户访问了敏感资源
+            Authentication authentication = AuthenticationContext.current();
+            if (authentication.isAdmin()) {
+                return Result.success(); // 管理员不适用此原则，直接放行
+            }
+            Set<String> userPermissionMarks = authentication.getPermissions();
             if (!userPermissionMarks.contains(matcher.get().mark)) {
                 // 用户没有该权限，拒绝访问
                 return Result.error(403, "access denied");

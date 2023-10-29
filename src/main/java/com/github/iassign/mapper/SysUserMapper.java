@@ -48,12 +48,12 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     @Select({"<script>",
             "select id,username,email from sys_user <where>",
             "<if test='id!=null and id!=\"\"'>and id=#{id}</if>",
-            "<if test='username!=null and username!=\"\"'>and username like CONCAT('%',#{username}},'%')</if>",
-            "<if test='email!=null and email!=\"\"'>and email like CONCAT('%',#{email}},'%')</if>",
+            "<if test='username!=null and username!=\"\"'>and username like CONCAT('%',#{username},'%')</if>",
+            "<if test='email!=null and email!=\"\"'>and email like CONCAT('%',#{email},'%')</if>",
             "<if test='roleId!=null and roleId!=\"\"'>",
-            "and exists (select 1 from sys_user ur where ur.role_id=#{roleId} and ur.user_id=sys_user.id)",
+            "and exists (select 1 from sys_user_role ur where ur.role_id=#{roleId} and ur.user_id=sys_user.id)",
             "</if>",
-            "<where>",
+            "</where>",
             "</script>"})
     List<SysUserRoleDTO> selectByUserRole(SysUserRoleDTO dto);
 
