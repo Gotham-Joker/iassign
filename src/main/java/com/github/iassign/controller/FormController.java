@@ -1,17 +1,23 @@
 package com.github.iassign.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.authorization.AuthenticationContext;
 import com.github.authorization.UserDetails;
 import com.github.core.JsonUtil;
 import com.github.core.Result;
+import com.github.iassign.core.util.PlaceHolderUtils;
 import com.github.iassign.dto.FormDTO;
 import com.github.iassign.entity.FormDefinition;
 import com.github.iassign.service.FormService;
-import com.github.iassign.util.PlaceHolderUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -21,6 +27,8 @@ import java.util.Map;
 public class FormController {
     @Autowired
     private FormService formService;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @GetMapping
     public Result pageQuery(@RequestParam Map<String, String> params) {
@@ -32,6 +40,11 @@ public class FormController {
         return Result.success(formService.findDefinitionById(id));
     }
 
+    /**
+     * 查找表单，并且进行上下文变量替换
+     *
+     * @return
+     */
     @GetMapping("def/context")
     public Result findByIdWithContext(@RequestParam String id) {
         FormDefinition formDefinition = formService.findDefinitionById(id);
@@ -41,7 +54,8 @@ public class FormController {
         context.put("USER_ID", details.id);
         context.put("USERNAME", details.username);
         context.put("DEPT_ID", details.deptId);
-        json = PlaceHolderUtil.replace(json, context);
+        context.put("DEPT_CODE", details.deptCode);
+        json = PlaceHolderUtils.replace(json, context);
         FormDefinition definition = JsonUtil.readValue(json, FormDefinition.class);
         return Result.success(definition);
     }
@@ -69,4 +83,23 @@ public class FormController {
         return Result.success();
     }
 
+    /**
+     * 导出表单
+     */
+    @GetMapping("out")
+    public ResponseEntity<byte[]> exportForm(@RequestParam String id) {
+        return Result.octetStream(id+"_f.json", JsonUtil.toJson(formService.selectById(id)).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 导入表单
+     */
+    @PostMapping("in")
+    public Result importForm(@RequestParam MultipartFile file) throws IOException {
+        try (InputStream in = file.getInputStream()){
+            FormDefinition definition = objectMapper.readValue(in, FormDefinition.class);
+            formService.save(definition);
+        }
+        return Result.success();
+    }
 }

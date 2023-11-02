@@ -1,10 +1,10 @@
 package com.github.iassign.dto;
 
 import com.github.iassign.enums.TaskOperation;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 import org.springframework.util.StringUtils;
 
-import jakarta.validation.constraints.NotEmpty;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

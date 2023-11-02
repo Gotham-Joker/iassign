@@ -49,18 +49,6 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
 
     private final ConcurrentHashMap<String, SseEmitter> sseMap = new ConcurrentHashMap<>();
 
-   /* @Scheduled(cron = "0 0/1 * * * ?")
-    public void keepAlive() {
-        SseEmitter.SseEventBuilder comment = SseEmitter.event().id(new Date().getTime() + "").comment("keep-alive");
-        sseMap.values().forEach(sse -> {
-            try {
-                sse.send(comment);
-            } catch (Exception e) {
-                log.error("send sse heartbeat error", e);
-            }
-        });
-    }*/
-
 
     public SseEmitter connect(String token) {
 //        log.info("sse connect:{}", token);
@@ -151,8 +139,6 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
         if (sseEmitter != null) {
             try {
                 sseEmitter.send("");
-                // 因为设置了无限timeout，所以每次发完消息都直接关闭，让浏览器重连(证明浏览器还在运行)
-//                sseEmitter.complete();
             } catch (IOException e) {
                 log.error("站内信发送失败", e);
             }
@@ -207,8 +193,8 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
      * 发送指派消息
      *
      * @param dto
-     * @param userDetails 当前登录用户信息
      * @param task
+     * @param userDetails 当前登录用户信息
      */
     @Async
     public void sendAssignMsg(ProcessClaimAssignDTO dto, ProcessTask task, UserDetails userDetails) {
@@ -218,7 +204,7 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
         sysMessage.fromUsername = userDetails.username;
         sysMessage.fromUserAvatar = userDetails.avatar;
         sysMessage.subject = "任务指派";
-        sysMessage.content = "您收到了一个指派任务[" + task.name + "] " + task.remark;
+        sysMessage.content = "您收到了一个指派任务[" + task.name + "] " + dto.remark;
         sysMessage.status = 0;
         sysMessage.createTime = new Date();
         sysMessage.link = task.instanceId;
@@ -232,12 +218,12 @@ public class SysMessageService extends BaseService<SysMessage> implements Consum
      * @param instance
      */
     @Async
-    public void sendSuccessMsg(ProcessInstance instance, UserDetails details) {
+    public void sendSuccessMsg(ProcessInstance instance) {
         SysMessage sysMessage = new SysMessage();
         sysMessage.toUserId = instance.starter;
-        sysMessage.fromUserId = details.id;
-        sysMessage.fromUsername = details.username;
-        sysMessage.fromUserAvatar = details.avatar;
+        sysMessage.fromUserId = "";
+        sysMessage.fromUsername = "系统消息";
+        sysMessage.fromUserAvatar = "/assets/cat.jpg";
         sysMessage.subject = "审批成功";
         sysMessage.content = "恭喜，您的[" + instance.name + "]已全部审批通过";
         sysMessage.status = 0;

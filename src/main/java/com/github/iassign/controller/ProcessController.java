@@ -21,9 +21,15 @@ public class ProcessController {
         return Result.success(processService.startInstance(dto).id);
     }
 
+    /**
+     * 取消流程实例（撤回）
+     * @param id
+     * @return
+     */
     @PutMapping("cancel")
     public Result cancelInstance(@RequestParam String id) {
         processService.cancelInstance(id);
         return Result.success();
     }
+
 }

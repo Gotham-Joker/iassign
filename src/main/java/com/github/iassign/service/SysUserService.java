@@ -102,7 +102,7 @@ public class SysUserService extends BaseService<SysUser> {
      */
     @Transactional
     public String uploadAvatar(MultipartFile file) throws IOException {
-        String avatarUrl = uploadService.upload(file).get("url");
+        String avatarUrl = uploadService.upload(file);
         String userId = AuthenticationContext.current().getId();
         SysUser sysUser = sysUserMapper.selectById(userId);
         sysUser.avatar = avatarUrl;

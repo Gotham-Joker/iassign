@@ -1,9 +1,11 @@
 package com.github.iassign.controller;
 
+import com.github.core.DateUtil;
 import com.github.core.Result;
 import com.github.iassign.service.ProcessInstanceIndexService;
 import com.github.iassign.vo.ProcessInstanceIndexVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -20,25 +22,28 @@ public class ProcessInstanceIndexController {
     /**
      * 用post查询，因为参数可能很多
      *
+     * @param lastId search after，即从哪条数据id之后开始查询，大数据量时分页友好
+     * @param score  search after，评分
      * @param index
      * @return
      */
     @PostMapping("query")
-    public Result pageQuery(@RequestParam(defaultValue = "1") Integer page,
+    public Result pageQuery(@RequestParam(required = false) String lastId,
+                            @RequestParam(required = false) String score,
                             @RequestParam(defaultValue = "10") Integer size,
-                            @RequestParam(defaultValue = "true") Boolean highlight,
                             @RequestBody ProcessInstanceIndexVO index) throws IOException {
-        /*if (!StringUtils.hasText(index.definitionId)) {
+        if (!StringUtils.hasText(index.definitionId)) {
             return Result.error(422, "缺少definitionId参数");
-        }*/
+        }
         if (index.createTimeGe == null || index.createTimeLe == null) {
             return Result.error("请选择申请日期区间");
         }
-        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(6, ChronoUnit.MONTHS)
-                .plus(1, ChronoUnit.DAYS).isBefore(LocalDateTime.ofInstant(index.createTimeLe.toInstant(), ZoneId.of("UTC+8")))) {
-            return Result.error("选择的日期范围不能相差超过6个月");
+        if (DateUtil.toLocalDateTime(index.createTimeGe).plus(6, ChronoUnit.MONTHS).plus(1, ChronoUnit.DAYS)
+                .isBefore(DateUtil.toLocalDateTime(index.createTimeLe))) {
+            return Result.error("选择的日期范围不能相差6个月以上");
         }
-        return Result.success(processInstanceIndexService.pageQuery(page, size, index, highlight));
+        return Result.success(processInstanceIndexService.pageQuery(lastId, score, size, index,
+                StringUtils.hasText(index.content), true));
     }
 
     /**
@@ -49,13 +54,17 @@ public class ProcessInstanceIndexController {
      */
     @PostMapping("download")
     public Result download(@RequestBody ProcessInstanceIndexVO index) throws IOException {
+        if (!StringUtils.hasText(index.definitionId)) {
+            return Result.error(422, "缺少definitionId参数");
+        }
         if (index.createTimeGe == null || index.createTimeLe == null) {
             return Result.error("请选择申请日期区间");
         }
-        if (LocalDateTime.ofInstant(index.createTimeGe.toInstant(), ZoneId.of("UTC+8")).plus(6, ChronoUnit.MONTHS)
-                .plus(1, ChronoUnit.DAYS).isBefore(LocalDateTime.ofInstant(index.createTimeLe.toInstant(), ZoneId.of("UTC+8")))) {
-            return Result.error("选择的日期范围不能相差超过6个月,且excel单次导出记录不允许超过1万条");
+        if (DateUtil.toLocalDateTime(index.createTimeGe).plus(6, ChronoUnit.MONTHS).plus(1, ChronoUnit.DAYS)
+                .isBefore(DateUtil.toLocalDateTime(index.createTimeLe))) {
+            return Result.error("选择的日期范围不能相差6个月以上");
         }
         return Result.success(processInstanceIndexService.generateExcel(index));
     }
+
 }

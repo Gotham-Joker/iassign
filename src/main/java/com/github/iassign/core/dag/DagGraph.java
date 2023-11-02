@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * 有向无环图，简称DAG
+ * 有向无环图，简称DAG，但是暂时未校验是否存在环
  */
 @Slf4j
 public class DagGraph {

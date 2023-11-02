@@ -4,6 +4,8 @@ import com.github.iassign.entity.ProcessInstance;
 import com.github.iassign.enums.ProcessInstanceStatus;
 import lombok.Data;
 
+import java.util.Date;
+
 /**
  * 流程实例快照
  */
@@ -18,7 +20,12 @@ public class ProcessInstanceSnapshot {
     public String handlerId; // 当前处理人用户ID
     public String handlerName; // 当前处理人用户名
     public String preHandlerId; // 上一处理人用户ID
+    public Date createTime; // 申请日期
     public ProcessInstanceStatus status; // 0-已撤回 1-执行中 2-成功 3-失败
+
+    public ProcessInstanceSnapshot() {
+
+    }
 
     public ProcessInstanceSnapshot(ProcessInstance instance) {
         this.id = instance.id;
@@ -31,5 +38,6 @@ public class ProcessInstanceSnapshot {
         this.preHandlerId = instance.preHandlerId;
         this.status = instance.status;
         this.deptId = instance.deptId;
+        this.createTime = instance.createTime;
     }
 }

@@ -26,26 +26,13 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
             " <if test='createTime_le!=null and createTime_le!=\"\"'> and i.create_time &lt;=#{createTime_le} </if>",
             " <if test='definitionName!=null and definitionName!=\"\"'> and i.name like CONCAT('%',#{definitionName},'%') </if>",
             " <if test='referenceIds!=null and !referenceIds.isEmpty()'> ",
-            " and exists (select 1 from t_process_task_auth a where a.task_id=t.id and reference_id in (<foreach collection='referenceIds' separator=',' item='item'>#{item}</foreach>)) ",
+            " and exists (select 1 from t_process_task_auth a where a.task_id=t.id and reference_id in ",
+            "(<foreach collection='referenceIds' separator=',' item='item'>#{item}</foreach>)) ",
             "</if> ",
             " and t.status in (1,2)",
-            "</where>",
+            "</where> order by t.create_time desc",
             "</script>"})
     List<TaskTodoVO> selectTodoList(ProcessTaskTodoQuery processTaskTodoQuery);
-
-    @Select({"<script>",
-            "select t.instance_id,t.id task_id,t.name task_name,i.starter,",
-            "u.username starter_name,i.name definition_name,t.form_id, t.status,t.create_time ",
-            "from t_process_task t inner join t_process_instance i on t.instance_id=i.id ",
-            "inner join sys_user u on u.id = i.starter ",
-            "where t.status=3 and t.assign_id=#{userId} ",
-            " <if test='instanceId!=null and instanceId!=\"\"'> and i.id=#{instanceId} </if>",
-            " <if test='starter!=null and starter!=\"\"'> and i.starter=#{starter} </if>",
-            " <if test='createTime_ge!=null and createTime_ge!=\"\"'> and i.create_time &gt;=#{createTime_ge} </if>",
-            " <if test='createTime_le!=null and createTime_le!=\"\"'> and i.create_time &lt;=#{createTime_le} </if>",
-            " <if test='definitionName!=null and definitionName!=\"\"'> and i.name like CONCAT('%',#{definitionName},'%') </if>",
-            "</script>"})
-    List<TaskTodoVO> selectAssign(ProcessTaskTodoQuery query);
 
 
     @Update("update t_process_task set status=7 where instance_id=#{instanceId} and status between 0 and 3")

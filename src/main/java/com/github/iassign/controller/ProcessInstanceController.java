@@ -2,10 +2,10 @@ package com.github.iassign.controller;
 
 import com.github.iassign.service.ProcessInstanceService;
 import com.github.core.Result;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.util.StreamUtils;
@@ -28,8 +28,12 @@ import java.util.Map;
 public class ProcessInstanceController {
     @Autowired
     private ProcessInstanceService processInstanceService;
-    @Value("${logPath:/tmp}")
-    private String logPath;
+    private String routeLogPath;
+
+    @PostConstruct
+    public void init() {
+        routeLogPath = System.getProperty("routeLogPath", "/tmp");
+    }
 
     /**
      * 分页查询流程实例
@@ -57,7 +61,7 @@ public class ProcessInstanceController {
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + instanceId + ".log");
         response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE);
         ServletOutputStream out = response.getOutputStream();
-        File file = new File(logPath + "/process/" + instanceId + ".log");
+        File file = new File(routeLogPath + "/process/" + instanceId + ".log");
         if (!file.exists()) {
             out.write("日志文件不存在".getBytes(StandardCharsets.UTF_8));
             return;

@@ -6,10 +6,8 @@ import com.github.iassign.core.expression.ExpressionEvaluator;
 import lombok.Data;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Data
 public class UserTaskNode extends DagNode implements ExpressionNode {
@@ -19,6 +17,7 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
     public List<String> roleList;
     public String userScript;
     public String roleScript;
+    public Boolean countersign; // 是否是会签节点 true-是 false-否
     private ExpressionEvaluator expressionEvaluator;
 
 
@@ -40,6 +39,8 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
         ArrayNode roleListNode = (ArrayNode) data.get("roleList");
         userListNode.forEach(node -> userList.add(node.asText()));
         roleListNode.forEach(node -> roleList.add(node.asText()));
+        JsonNode countersignNode = data.get("countersign");
+        this.countersign = countersignNode != null && countersignNode.asBoolean(false);
     }
 
 
@@ -48,7 +49,7 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
      *
      * @param variables
      */
-    public List<String> candidateUsers(Map<String, Object> variables) throws Exception {
+    public List<String> candidateUsers(Map<String, Object> variables) {
         return candidates(variables, userScript, userList);
     }
 
@@ -58,19 +59,26 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
      *
      * @param variables
      */
-    public List<String> candidateRoles(Map<String, Object> variables) throws Exception {
+    public List<String> candidateRoles(Map<String, Object> variables) {
         return candidates(variables, roleScript, roleList);
     }
 
     private List<String> candidates(Map<String, Object> variables,
-                                    String expression, List<String> defaultList) throws Exception {
+                                    String expression, List<String> defaultList) {
         List<String> list = null;
         if (StringUtils.hasText(expression)) {
-            Object result = expressionEvaluator.evaluate(expression, variables);
+            Object result;
+            try {
+                result = expressionEvaluator.evaluate(expression, variables);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
             if (result instanceof String) {
                 list = Collections.singletonList((String) result);
-            } else if (result instanceof List) {
-                list = (List<String>) result;
+            } else if (result instanceof Collection) {
+                list = ((Collection<?>) result).stream().map(Object::toString).collect(Collectors.toList());
+            } else if (result instanceof String[]) {
+                list = Arrays.stream(((String[]) result)).collect(Collectors.toList());
             }
             return list;
         }

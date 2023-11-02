@@ -1,8 +1,8 @@
 package com.github.iassign.dto;
 
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 
-import jakarta.validation.constraints.NotEmpty;
 
 /**
  * 认领任务或者指派任务

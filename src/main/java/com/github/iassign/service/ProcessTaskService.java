@@ -1,14 +1,12 @@
 package com.github.iassign.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.github.iassign.entity.SysRole;
-import com.github.iassign.entity.SysUser;
-import com.github.iassign.mapper.SysRoleMapper;
-import com.github.iassign.mapper.SysUserMapper;
+import com.github.iassign.entity.*;
+import com.github.pagehelper.PageHelper;
 import com.github.authorization.UserDetails;
 import com.github.iassign.ProcessLogger;
 import com.github.iassign.dto.ProcessClaimAssignDTO;
-import com.github.iassign.entity.ProcessTaskAuth;
+import com.github.iassign.dto.Tuple;
 import com.github.iassign.enums.ProcessInstanceStatus;
 import com.github.iassign.mapper.*;
 import com.github.iassign.vo.ProcessTaskTodoQuery;
@@ -19,15 +17,10 @@ import com.github.authorization.Authentication;
 import com.github.authorization.AuthenticationContext;
 import com.github.base.BaseService;
 import com.github.core.ApiException;
-import com.github.core.JsonUtil;
 import com.github.iassign.core.dag.DagEdge;
 import com.github.iassign.core.dag.node.DagNode;
 import com.github.iassign.core.dag.node.StartNode;
 import com.github.iassign.core.dag.node.UserTaskNode;
-import com.github.iassign.dto.ProcessTaskDTO;
-import com.github.iassign.entity.ProcessInstance;
-import com.github.iassign.entity.ProcessTask;
-import com.github.iassign.entity.ProcessVariables;
 import com.github.core.PageResult;
 import com.github.core.Result;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +28,7 @@ import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.*;
@@ -57,11 +51,13 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     @Autowired
     private FormInstanceMapper formInstanceMapper;
     @Autowired
-    private ProcessTaskAuthMapper processTaskAuthMapper;
+    private ProcessTaskAuthService processTaskAuthService;
     @Autowired
     private SysUserMapper sysUserMapper;
     @Autowired
     private SysRoleMapper sysRoleMapper;
+    @Autowired
+    private ProcessOpinionService processOpinionService;
     @Autowired
     private ProcessMailService processMailService;
     @Autowired
@@ -96,11 +92,24 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         copyTask.incomeId = backwardTask.incomeId;
         copyTask.preHandlerId = backwardTask.preHandlerId;
         copyTask.name = backwardTask.name;
-        copyTask.status = PENDING; // 待受理状态
+        copyTask.status = PENDING; // 新的回退任务是待受理状态
         copyTask.userNode = backwardTask.userNode;
         copyTask.createTime = new Date();
+        copyTask.countersign = backwardTask.countersign;
+        // 如果是会签，则自动受理
+        if (copyTask.countersign) {
+            copyTask.status = CLAIMED;
+        }
         processTaskMapper.insert(copyTask);
         return copyTask;
+    }
+
+    /**
+     * 直接拒绝这个任务，对应的流程实例应当取消
+     */
+    public void reject(ProcessTask task) {
+        task.status = ProcessTaskStatus.REJECTED;
+        updateById(task);
     }
 
     /**
@@ -118,47 +127,56 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         }
         task.handlerId = dto.userId;
         task.status = ProcessTaskStatus.CLAIMED;
-        task.handlerName = dto.username;
-        task.handlerAvatar = dto.avatar;
-        task.handlerEmail = dto.email;
         task.updateTime = new Date();
         updateById(task);
         instance.handlerId = dto.userId;
         instance.handlerName = dto.username;
         processInstanceMapper.updateById(instance);
         Logger processLogger = ProcessLogger.logger(instance.id);
-        processLogger.info("用户{}[{}]受理了任务<{}>[{}]", dto.username, dto.userId, task.name, task.id);
+        processLogger.info("用户{}[{}]确认受理<{}>[{}]", dto.username, dto.userId, task.name, task.id);
         return Result.success(task);
     }
 
-    // 取消受理，挺麻烦的，暂时不给取消受理
-  /*  public void disclaim() {
-
-    }*/
 
     /**
      * 指派，应该发个通知给被指派的人
      */
+    @Transactional
     public Result assign(ProcessClaimAssignDTO dto) {
         ProcessTask task = processTaskMapper.selectById(dto.taskId);
         if (task.status != CLAIMED) {
             return Result.error("只有认领了任务才能指派");
         }
-        UserDetails currentUserDetails = AuthenticationContext.current().getDetails();
         Logger processLogger = ProcessLogger.logger(task.instanceId);
-        processLogger.info("{}将任务[{}]指派给了{}", currentUserDetails.username, task.name, dto.username);
-        task.assignId = dto.userId;
-        task.assignAvatar = dto.avatar;
-        task.assignName = dto.username;
-        task.assignEmail = dto.email;
-        task.status = ASSIGNED;  // 标记为已指派
-        task.remark = dto.remark;
-        task.assignTime = new Date();
+        // 当前登录用户信息
+        UserDetails userDetails = AuthenticationContext.current().getDetails();
+        // 判断是否可以指派，指派有几个原则：
+        // 1.拥有审批权限
+        Set<String> taskAuthIds = processTaskAuthService.selectAuthorize(task.id, userDetails.id);
+        if (CollectionUtils.isEmpty(taskAuthIds)) {
+            // 没有审批权限
+            processLogger.error("<{}>[{}]不具备审批环节<{}>[{}]的审批权限，不能执行指派操作", userDetails.id, userDetails.username, task.name, task.id);
+            return Result.error("您不具备审批权限，不能执行指派操作");
+        }
+        // 2. 被指派人不能在已授权清单中(忽略被指派人的角色)
+        String referenceId = processTaskAuthService.selectAuthorizedUser(task.id, dto.userId);
+        if (StringUtils.hasText(referenceId)) {
+            // 不允许审批
+            processLogger.error("审批人<{}>[{}]指派失败，被指派人<{}>[{}]已具备审批权限。审批环节：<{}>[{}]",
+                    userDetails.id, userDetails.username,
+                    dto.userId, dto.username, task.name, task.id);
+            return Result.error("指派失败，被指派人" + dto.username + "已具备审批权限");
+        }
+        // 指派，就是给当前任务加个授权人，允许其审批
+        processLogger.info("{}将任务[{}]指派给了{}", userDetails.username, task.name, dto.username);
+        // 被指派人加入授权清单
+        processTaskAuthService.addAuthorize(dto, task);
+        processOpinionService.submitAssignOpinion(userDetails, task, dto);
         updateById(task);
         // 指派成功，通知被指派的人
-        processMailService.sendAssignMail(currentUserDetails.username, dto, task);
-        sysMessageService.sendAssignMsg(dto, task, currentUserDetails);
-        return Result.success(task);
+        processMailService.sendAssignMail(userDetails.username, dto, task);
+        sysMessageService.sendAssignMsg(dto, task, userDetails);
+        return Result.success(auditListAfter(task.instanceId, task.id));
     }
 
     public ProcessTask createStartTask(ProcessInstance instance, StartNode startNode) {
@@ -171,6 +189,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         task.name = startNode.label;
         task.status = ProcessTaskStatus.SUCCESS;
         task.createTime = new Date();
+        task.countersign = false;
         processTaskMapper.insert(task);
         return task;
     }
@@ -189,17 +208,13 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         task.definitionId = instance.definitionId;
         task.instanceId = instance.id;
         task.preHandlerId = instance.preHandlerId;
-        if (node instanceof UserTaskNode) {
-            task.formId = ((UserTaskNode) node).formId;
-            task.userNode = true;
-        } else {
-            task.userNode = false;
-        }
         task.dagNodeId = node.id;
         task.incomeId = dagEdge.id;
         task.name = node.label;
         task.status = status;
         task.createTime = new Date();
+        task.countersign = false;
+        task.userNode = false;
         processTaskMapper.insert(task);
         return task;
     }
@@ -217,18 +232,10 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     public Set<String> authorize(ProcessInstance instance, ProcessTask task, UserTaskNode userTaskNode, Map<String, Object> variables) {
         // 准备日志路由
         Logger processLogger = ProcessLogger.logger(instance.id);
-        List<String> candidateUsers;
-        List<String> candidateRoles;
-        try {
-            // 可审批用户
-            candidateUsers = userTaskNode.candidateUsers(variables);
-            // 可审批角色
-            candidateRoles = userTaskNode.candidateRoles(variables);
-        } catch (Exception e) {
-            String msg = "给下一审批环节[" + task.name + "]添加审批人时发生错误";
-            processLogger.error(msg, e);
-            throw new ApiException(500, msg);
-        }
+        // 可审批用户
+        List<String> candidateUsers = userTaskNode.candidateUsers(variables);
+        // 可审批角色
+        List<String> candidateRoles = userTaskNode.candidateRoles(variables);
 
         // 处理申请人可审批的场景，并替换成实际的值
         int starterIndex = candidateUsers.indexOf("{starter}");
@@ -255,38 +262,45 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * @param emailSet
      */
     private void authorizeRoles(ProcessTask task, List<String> candidateRoles, Set<String> emailSet, Logger processLogger) {
-        // 处理“上一处理人主管”审批的场景，并找出成实际主管
-        int masterIndex = candidateRoles.indexOf("{master}");
-        if (masterIndex != -1) {
-            candidateRoles.remove(masterIndex);
-            SysUser sysUser = sysUserMapper.selectById(task.preHandlerId);
-            String masterId = sysUser.deptId + "MA01";
-            SysRole master = sysRoleMapper.selectById(masterId);
-            if (master != null) {
-                processLogger.info("任务:<{}>[{}]，上一处理人的主管可审批:{}", task.name, task.id, master);
-                ProcessTaskAuth auth = new ProcessTaskAuth(master, task.id);
-                processTaskAuthMapper.insert(auth);
-            } else {
-                processLogger.error("上一处理人的主管不存在,程序需要查找的角色ID为:{}", masterId);
-                throw new ApiException(500, "查找上一个处理人的主管时发生错误");
+        // 处理“上一处理人主管”审批这些特殊的场景，并找出成实际的角色
+        // 分别代表主管、副主管、分管、副分管
+        String[] expressOptions = new String[]{"{master}", "{vMaster}", "{leader}", "{vLeader}"};
+        String[] roleSuffixes = new String[]{"MA01", "VMA01", "MA02", "VMA02"};
+        for (int i = 0; i < expressOptions.length; i++) {
+            String expressOption = expressOptions[i];
+            int idx = candidateRoles.indexOf(expressOption);
+            if (idx != -1) {
+                candidateRoles.remove(idx);
+                SysUser sysUser = sysUserMapper.selectById(task.preHandlerId);
+                String roleId = sysUser.deptId + roleSuffixes[i];
+                SysRole sysRole = sysRoleMapper.selectById(roleId);
+                if (sysRole == null) {
+                    processLogger.error("角色查找失败，原因：角色缺失，缺失的角色ID:{}", roleId);
+                    throw new ApiException(404, "角色查找失败，原因：角色缺失");
+                }
+                processLogger.info("审批节点:<{}>[{}]，可审批角色:<{}>[{}]", task.name, task.id, sysRole.name, sysRole.id);
+                ProcessTaskAuth auth = new ProcessTaskAuth(sysRole, task.id);
+                processTaskAuthService.save(auth);
             }
         }
+
         if (!candidateRoles.isEmpty()) {
             List<SysRole> roles = sysRoleMapper.selectBatchIds(candidateRoles);
-            processLogger.info("任务:{}[{}]，可审批角色:{}", task.name, task.id, candidateRoles);
+            processLogger.info("审批节点:<{}>[{}]，可审批角色:{}", task.name, task.id, candidateRoles);
             roles.forEach(role -> {
                 ProcessTaskAuth auth = new ProcessTaskAuth(role, task.id);
-                processTaskAuthMapper.insert(auth);
+                processTaskAuthService.save(auth);
             });
         }
         // 查找已被授权的用户的邮箱
-        Set<String> mails = processTaskAuthMapper.selectRoleUserMailByTaskId(task.id);
-        mails.forEach(mail -> {
+        Set<Tuple<String, String>> tuples = processTaskAuthService.selectRoleUserMailByTaskId(task.id);
+        tuples.forEach(tuple -> {
+            String mail = tuple.v;
             if (mail != null && MAIL_PATTERN.matcher(mail).find()) {
                 // 准备好邮箱地址，用于发送电邮
                 emailSet.add(mail);
             } else {
-                processLogger.warn("存在非法邮箱：{}", mail);
+                processLogger.warn("存在非法邮箱：userId:{},email:{}", tuple.k, mail);
             }
         });
     }
@@ -301,6 +315,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     private void authorizeUsers(ProcessTask task, List<String> candidateUsers, Set<String> emailSet, Logger processLogger) {
 
         List<SysUser> users = new ArrayList<>();
+
         if (!candidateUsers.isEmpty()) {
             List<SysUser> sysUsers = sysUserMapper.selectBatchIds(candidateUsers);
             if (sysUsers != null) {
@@ -311,7 +326,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
             if (user.email != null && MAIL_PATTERN.matcher(user.email).find() && !emailSet.contains(user.email)) {
                 emailSet.add(user.email);
                 ProcessTaskAuth auth = new ProcessTaskAuth(user, task.id);
-                processTaskAuthMapper.insert(auth);
+                processTaskAuthService.save(auth);
             } else {
                 processLogger.warn("用户{}[{}]的邮箱地址{}不合法，不允许加入可审批人员清单", user.username, user.id, user.email);
             }
@@ -332,21 +347,26 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
 
 
     /**
-     * 查找当前审批节点之后的审批环节
+     * 查找当前审批节点以及之后的审批节点
      *
      * @param instanceId
-     * @param taskIdGe
+     * @param taskIdGe   可以为null，null表示将流程实例的任务全都筛选出来
      * @return
      */
     public List<ProcessTask> auditListAfter(String instanceId, String taskIdGe) {
-        QueryWrapper<ProcessTask> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("instance_id", instanceId);
-        if (StringUtils.hasText(taskIdGe)) {
-            // 查找id大于指定taskId的任务清单
-            queryWrapper.ge("id", taskIdGe);
-        }
-        queryWrapper.orderByAsc("id");
-        return processTaskMapper.selectList(queryWrapper);
+        // 查找id大于指定taskId的任务清单
+        List<ProcessTask> processTasks = processTaskMapper.selectList(
+                new QueryWrapper<ProcessTask>()
+                        .eq("instance_id", instanceId)
+                        .ge(StringUtils.hasText(taskIdGe), "id", taskIdGe)
+                        .orderByAsc("id")
+        );
+
+        // 将审批意见按照任务ID进行分组，然后填充审批意见
+        Map<String, List<ProcessOpinion>> opinions = processOpinionService.selectOpinions(instanceId, taskIdGe);
+
+        processTasks.forEach(task -> task.opinions = opinions.get(task.id));
+        return processTasks;
     }
 
     /**
@@ -355,65 +375,76 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * @param processTaskTodoQuery
      * @return
      */
-    public List<TaskTodoVO> queryTodoList(ProcessTaskTodoQuery processTaskTodoQuery) {
+    public PageResult<TaskTodoVO> queryTodoList(Integer page, Integer size, ProcessTaskTodoQuery processTaskTodoQuery) {
         // 查询当前用户的ID和角色
         Authentication authentication = AuthenticationContext.current();
-        Set<String> roleIds = sysRoleMapper.selectBySysUserId(authentication.getId())
+        processTaskTodoQuery.referenceIds = sysRoleMapper.selectBySysUserId(authentication.getId())
                 .stream().map(SysRole::getId).collect(Collectors.toSet());
-        processTaskTodoQuery.referenceIds = new HashSet<>(roleIds);
         processTaskTodoQuery.referenceIds.add(authentication.getId());
         // 查询待办
-        List<TaskTodoVO> list = processTaskMapper.selectTodoList(processTaskTodoQuery);
-        processTaskTodoQuery.userId = authentication.getId();
-        // 指派给自己的任务也是代办
-        List<TaskTodoVO> assignList = processTaskMapper.selectAssign(processTaskTodoQuery);
-        list.addAll(assignList);
-        // 按时间倒序排序
-        list.sort(Comparator.comparing(TaskTodoVO::getCreateTime).reversed());
-        return list;
+        PageHelper.startPage(page, size);
+        return PageResult.of(processTaskMapper.selectTodoList(processTaskTodoQuery));
     }
 
-    public Result evaluatePermission(String id) {
+    /**
+     * 校验审批权限，当前用户如果不能审批，那么返回的VO对象的canAudit为false
+     *
+     * @param userId
+     * @param task
+     * @return
+     */
+    public TaskAuthVO validateAuthorize(String userId, ProcessTask task) {
         TaskAuthVO vo = new TaskAuthVO();
-        // 判断当前用户是否可以审批 先找出正在执行的任务
-        Authentication authentication = AuthenticationContext.current();
-        String userId = authentication.getId();
-        ProcessTask task = processTaskMapper.selectById(id);
-        if (task == null) {
-            return Result.error("任务不存在");
-        }
+
         if (task.status != PENDING && task.status != CLAIMED && task.status != ASSIGNED) {
             vo.canAudit = false;
-            return Result.success(vo);
+            return vo;
         }
 
-        if (userId.equals(task.handlerId) || userId.equals(task.assignId)) {
-            vo.canAudit = true;
+        // 判断是否可以审批：
+        // 1. 不在审批授权清单中不能审批
+        Set<String> authorizeSet = processTaskAuthService.selectAuthorize(task.id, userId);
+        if (CollectionUtils.isEmpty(authorizeSet)) {
+            vo.canAudit = false;
+            completeCandidates(task, vo);
+            return vo;
         }
 
-        if (task.status == PENDING) {
+        // 2. 同一个用户不能重复审批
+        ProcessOpinion processOpinion = processOpinionService.selectByTaskIdAndUserId(task.id, userId);
+        if (processOpinion != null) {
+            vo.canAudit = false;
+            completeCandidates(task, vo);
+            return vo;
+        }
+
+        vo.canAudit = true;
+
+        completeCandidates(task, vo);
+        return vo;
+    }
+
+    /**
+     * 将可审批人信息，补充完整
+     * 如果不是会签环节，已受理的时候没必要知道谁可以审批。如果是会签，那所有人都要知道，还有谁没审批
+     * 未受理状态，也显示谁能受理
+     *
+     * @param task
+     * @param vo
+     */
+    private void completeCandidates(ProcessTask task, TaskAuthVO vo) {
+        if (task.status == PENDING || (task.countersign && task.status == CLAIMED)) {
+            // 构造可审批人员和角色清单，让用户能知道现在该由谁审批
             // 填写任务的可审批人员和可审批角色清单
-            List<ProcessTaskAuth> list = processTaskAuthMapper.selectAuthByTaskId(task.id);
-            Set<String> referenceIds = new HashSet<>();
+            List<ProcessTaskAuth> list = processTaskAuthService.selectAuthByTaskId(task.id);
             list.forEach(item -> {
                 if (item.type == 0) {
                     vo.users.add(item);
                 } else {
                     vo.roles.add(item);
                 }
-                referenceIds.add(item.referenceId);
             });
-            if (referenceIds.contains(userId)) {
-                vo.canAudit = true;
-            }
-            Set<String> roleIds = sysRoleMapper.selectBySysUserId(authentication.getId())
-                    .stream().map(SysRole::getId).collect(Collectors.toSet());
-            if (referenceIds.stream().anyMatch(roleIds::contains)) {
-                vo.canAudit = true;
-            }
         }
-
-        return Result.success(vo);
     }
 
     /**
@@ -423,5 +454,60 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      */
     public void cancelByInstanceId(String instanceId) {
         processTaskMapper.cancelByInstanceId(instanceId);
+    }
+
+
+    /**
+     * 判断任务是否可以完成
+     *
+     * @param task
+     * @return
+     */
+    public boolean canFinish(ProcessTask task) {
+        if (task.countersign) {
+            return countersignFinish(task.id);
+        }
+        return true;
+    }
+
+    /**
+     * 判断会签是否已经完成
+     * 会签结束的条件：所有人都同意，如果包含角色，那么起码有一个角色必须审批参与审批通过，
+     * 只要有一个人不同意流程失败，只要有一个人回退，那么流程回退
+     *
+     * @return
+     */
+    public boolean countersignFinish(String taskId) {
+        // 取出会签环节中，必须参与会签的人和角色
+        Set<String> participantUserIds = new HashSet<>();
+        Set<String> participantRoleIds = new HashSet<>();
+        processTaskAuthService.selectAuthByTaskId(taskId).stream()
+                .forEach(processTaskAuth -> {
+                    // 参与者是人
+                    if (processTaskAuth.type == 0) {
+                        participantUserIds.add(processTaskAuth.referenceId);
+                    } else {
+                        // 参与者是角色
+                        participantRoleIds.add(processTaskAuth.referenceId);
+                    }
+                });
+        // 取出会签环节，已参与会签的人员
+        Set<String> userIds = processOpinionService.selectByTaskId(taskId).stream()
+                .map(ProcessOpinion::getUserId).collect(Collectors.toSet());
+        for (String userId : participantUserIds) {
+            // 说明还有人员未参与审批
+            if (!userIds.contains(userId)) {
+                return false;
+            }
+        }
+        if (!participantRoleIds.isEmpty()) {
+            // 取出已参与会签的角色
+            Set<String> roleIds = processOpinionService.selectParticipantRoles(taskId, participantRoleIds);
+            // 说明还有角色未审批
+            if (roleIds.size() < participantRoleIds.size()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

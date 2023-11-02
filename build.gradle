@@ -86,9 +86,6 @@ build {
         }
     }
 }
-tasks.named('test') {
-    useJUnitPlatform()
-}
 clean.doLast {
     fileTree(dir: "$projectDir/docker", includes: ["*.jar"]).each { it.delete() }
 }

@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.springframework.stereotype.Repository;
 
+import java.io.Serializable;
 import java.util.List;
 
 @Repository
@@ -22,7 +23,7 @@ public interface ProcessDefinitionMapper extends BaseMapper<ProcessDefinition> {
     void bind(@Param("definitionId") String definitionId, @Param("deptIds") List<String> deptIds);
 
     @Select("select dept_id from t_process_definition_auth where definition_id=#{definitionId}")
-    List<String> selectPermission(@Param("definitionId") String id);
+    List<String> selectDeployDepartments(@Param("definitionId") String id);
 
     @Select({"<script>",
             "select d.id,d.name,d.description,d.form_id,d.group_name,d.seq_no,d.icon from t_process_definition d ",
@@ -38,4 +39,8 @@ public interface ProcessDefinitionMapper extends BaseMapper<ProcessDefinition> {
             "</where>",
             "</script>"})
     List<ProcessDefinition> selectUsersDefinitions(@Param("keyword") String keyword, @Param("deptIds") List<String> deptId);
+
+    @Delete("delete from t_process_definition_auth where definition_id=#{definitionId}")
+    void deleteAuth(@Param("definitionId") Serializable id);
+
 }

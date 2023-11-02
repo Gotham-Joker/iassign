@@ -9,6 +9,7 @@ import co.elastic.clients.json.jackson.JacksonJsonpMapper;
 import co.elastic.clients.transport.ElasticsearchTransport;
 import co.elastic.clients.transport.rest_client.RestClientTransport;
 import com.github.SpringApplicationTests;
+import com.github.core.DateUtil;
 import com.github.core.JsonUtil;
 import com.github.iassign.dto.ProcessInstanceIndexDTO;
 import com.github.iassign.entity.ProcessInstanceIndex;
@@ -79,7 +80,7 @@ public class ElasticSearchTests extends SpringApplicationTests {
         index.starterName = processInstance.starterName;
         index.deptName = "科技部";
         index.deptId = "1";
-        index.createTime = processInstance.createTime;
+        index.createTime = DateUtil.formatCn(processInstance.createTime);
         index.status = processInstance.status.name();
         index.variables = variablesMap;
         if (!CollectionUtils.isEmpty(variablesMap)) {

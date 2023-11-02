@@ -6,13 +6,15 @@ import com.github.iassign.entity.ProcessDefinition;
 import com.github.iassign.entity.ProcessDefinitionRu;
 import com.github.iassign.mapper.ProcessDefinitionMapper;
 import com.github.base.BaseService;
-import com.github.iassign.mapper.ProcessDefinitionRuMapper;
+import com.github.iassign.vo.ProcessDefinitionDetailVO;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.io.Serializable;
+import java.util.Date;
 import java.util.List;
 
 @Service
@@ -21,7 +23,7 @@ public class ProcessDefinitionService extends BaseService<ProcessDefinition> {
     @Autowired
     private ProcessDefinitionMapper processDefinitionMapper;
     @Autowired
-    private ProcessDefinitionRuMapper processDefinitionRuMapper;
+    private ProcessDefinitionRuService processDefinitionRuService;
 
     /**
      * 查找流程定义详情
@@ -33,9 +35,9 @@ public class ProcessDefinitionService extends BaseService<ProcessDefinition> {
     public ProcessDefinition selectById(Serializable id) {
         ProcessDefinition processDefinition = super.selectById(id);
         if (StringUtils.hasText(processDefinition.ruId)) {
-            ProcessDefinitionRu definitionRu = processDefinitionRuMapper.selectById(processDefinition.ruId);
+            ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(processDefinition.ruId);
             if (definitionRu == null) {
-                throw new ApiException(404, "流程图不存在或可能已被删除");
+                throw new ApiException(404, "流程图不存在或可能已被删除" + id);
             }
             processDefinition.dag = definitionRu.dag;
         }
@@ -57,26 +59,29 @@ public class ProcessDefinitionService extends BaseService<ProcessDefinition> {
      */
     @Transactional
     public void deploy(ProcessDeployDTO dto) {
-        ProcessDefinition definition = new ProcessDefinition();
-        definition.id = dto.id;
-        definition.status = dto.status;
-        baseMapper.updateById(definition);
-        if (dto.deptIds != null && !dto.deptIds.isEmpty()) {
-            // 解绑部门和流程定义的关系
-            processDefinitionMapper.unbind(definition.id);
-            // 重新绑定
-            processDefinitionMapper.bind(definition.id, dto.deptIds);
+        if (dto.deptIds != null) {
+            if (!dto.deptIds.isEmpty()) {
+                // 解绑部门和流程定义的关系
+                processDefinitionMapper.unbind(dto.id);
+                // 重新绑定
+                processDefinitionMapper.bind(dto.id, dto.deptIds);
+            } else {
+                // 解绑部门和流程定义的关系
+                processDefinitionMapper.unbind(dto.id);
+            }
         }
     }
 
     /**
-     * 查询流程定义的权限
+     * 查询流程定义可编辑信息
      *
      * @param id
      * @return
      */
-    public List<String> findPermission(String id) {
-        return processDefinitionMapper.selectPermission(id);
+    public ProcessDefinitionDetailVO findDefinitionDetail(String id) {
+        List<String> deptIds = processDefinitionMapper.selectDeployDepartments(id);
+        ProcessDefinition definition = processDefinitionMapper.selectById(id);
+        return new ProcessDefinitionDetailVO(definition, deptIds);
     }
 
     /**
@@ -88,5 +93,46 @@ public class ProcessDefinitionService extends BaseService<ProcessDefinition> {
      */
     public List<ProcessDefinition> selectUsersDefinitions(String keyword, List<String> deptIds) {
         return processDefinitionMapper.selectUsersDefinitions(keyword, deptIds);
+    }
+
+    @Transactional
+    public void deleteAuth(Serializable id) {
+        processDefinitionMapper.deleteAuth(id);
+    }
+
+    @Transactional
+    public void update(ProcessDefinition entity) {
+        entity.updateTime = new Date();
+        if (StringUtils.hasText(entity.dag)) {
+            ProcessDefinitionRu ru = processDefinitionRuService.saveIfAbsent(entity);
+            entity.ruId = ru.id;
+            updateById(entity);
+            // 更新流程图时，找出所有未被引用的流程图，然后把它们删了，只保留最新的一个
+            processDefinitionRuService.removeUnused(entity.id, ru.id);
+        } else {
+            updateById(entity);
+        }
+    }
+
+    /**
+     * 导入流程
+     *
+     * @param definition
+     * @param ru
+     */
+    @Transactional
+    public void importDefinition(ProcessDefinition definition, ProcessDefinitionRu ru) {
+        ProcessDefinition oldDef = processDefinitionMapper.selectById(definition.id);
+        ProcessDefinitionRu oldRu = processDefinitionRuService.selectById(definition.ruId);
+        if (oldDef == null) {
+            processDefinitionMapper.insert(definition);
+        } else {
+            processDefinitionMapper.updateById(definition);
+        }
+        if (oldRu == null) {
+            processDefinitionRuService.insert(ru);
+        } else {
+            processDefinitionRuService.updateById(ru);
+        }
     }
 }

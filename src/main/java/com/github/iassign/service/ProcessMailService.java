@@ -1,16 +1,33 @@
 package com.github.iassign.service;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.github.authorization.UserDetails;
 import com.github.core.ApiException;
 import com.github.core.JsonUtil;
 import com.github.iassign.dto.ProcessClaimAssignDTO;
 import com.github.iassign.entity.ProcessInstance;
+import com.github.iassign.entity.ProcessOpinion;
 import com.github.iassign.entity.ProcessTask;
+import jakarta.activation.DataHandler;
+import jakarta.activation.FileDataSource;
 import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeBodyPart;
+import jakarta.mail.internet.MimeUtility;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.entity.mime.HttpMultipartMode;
+import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ClassicHttpRequest;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.support.ClassicRequestBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.mail.MailProperties;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
@@ -18,10 +35,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -37,66 +52,80 @@ import static com.github.iassign.Constants.MAIL_PATTERN;
 public class ProcessMailService {
     @Value("${iassign.web-url}")
     private String webUrl;
-    @Value("${upload.path:/tmp}")
-    private String uploadPath; // 从这里获取附件
     @Value("${mail.enabled:true}")
     private Boolean enableMail;
+    @Autowired
+    private JavaMailSender javaMailSender;
+    @Autowired
+    private MailProperties mailProperties;
 
-    @Value("${spring.mail.username}")
-    private String from;
-    private final JavaMailSender javaMailSender;
+    private final ObjectMapper objectMapper;
 
     private final String TAG = "<I_ASSIGN>";
 
-    public ProcessMailService(JavaMailSender javaMailSender) {
-        this.javaMailSender = javaMailSender;
+    public ProcessMailService() {
+        objectMapper = new ObjectMapper();
+        objectMapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     }
 
     /**
-     * 发送邮件
+     * 发送邮件通知
      *
-     * @param to
-     * @param cc
-     * @param subject
-     * @param content
-     * @param attachments
-     * @throws Exception
+     * @param subject     邮件主题
+     * @param content     邮件正文
+     * @param receivers   邮件接收人
+     * @param receiversCc 邮件抄送人
+     * @param attachments 附件
      */
-    public void send(String subject, String content, Set<String> to, Set<String> cc, List<File> attachments) {
-        if (!Boolean.TRUE.equals(enableMail)) {
-            return;
-        }
-        boolean multipart = attachments != null && !attachments.isEmpty();
+    public void send(String subject, String content,
+                     Collection<String> receivers, Collection<String> receiversCc,
+                     List<File> attachments) {
         try {
+            boolean multipart = attachments != null && !attachments.isEmpty();
             MimeMessageHelper mimeMessageHelper = new MimeMessageHelper(javaMailSender.createMimeMessage(), multipart);
-            mimeMessageHelper.setFrom(from);
-            if (to == null || to.isEmpty()) {
-                throw new ApiException(500, "mail to is required");
-            }
-            mimeMessageHelper.setTo(to.toArray(new String[0]));
-            if (cc != null && !cc.isEmpty()) {
-                mimeMessageHelper.setCc(cc.toArray(new String[0]));
-            }
-            mimeMessageHelper.setSubject(subject);
             mimeMessageHelper.setEncodeFilenames(true);
-            if (content != null) {
-                if (content.startsWith("<!DOCTYPE HTML") || content.startsWith("<!doctype html")) {
-                    mimeMessageHelper.setText(content, true);
-                } else {
-                    mimeMessageHelper.setText(content);
-                }
+            mimeMessageHelper.setFrom(mailProperties.getUsername());
+            mimeMessageHelper.setSubject(subject);
+            if (receivers == null || receivers.isEmpty()) {
+                throw new RuntimeException("mail receivers is required");
             }
-            if (attachments != null && !attachments.isEmpty()) {
+            mimeMessageHelper.setTo(receivers.toArray(new String[0]));
+            if (receiversCc != null && !receiversCc.isEmpty()) {
+                mimeMessageHelper.setCc(receiversCc.toArray(new String[0]));
+            }
+
+            // 添加附件区
+            if (multipart) {
                 for (int i = 0; i < attachments.size(); i++) {
                     File file = attachments.get(i);
-                    mimeMessageHelper.addAttachment(file.getName(), file);
+                    FileDataSource dataSource = new FileDataSource(file);
+                    dataSource.setFileTypeMap(mimeMessageHelper.getFileTypeMap());
+                    try {
+                        MimeBodyPart mimeBodyPart = new MimeBodyPart();
+                        mimeBodyPart.setDisposition(MimeBodyPart.ATTACHMENT);
+                        // 解决附件名不支持中文的问题
+                        mimeBodyPart.setFileName(MimeUtility.encodeText(file.getName(), "UTF-8", "B"));
+                        mimeBodyPart.setDataHandler(new DataHandler(dataSource));
+                        mimeMessageHelper.getRootMimeMultipart().addBodyPart(mimeBodyPart);
+                    } catch (UnsupportedEncodingException ex) {
+                        throw new MessagingException("Failed to encode attachment filename", ex);
+                    }
                 }
             }
-            javaMailSender.send(mimeMessageHelper.getMimeMessage());
-        } catch (MessagingException e) {
-            log.error("邮件发生异常", e);
-        }
 
+            // 添加文本区
+            if (content == null) {
+                content = "";
+            }
+            if (content.startsWith("<!DOCTYPE HTML") || content.startsWith("<!doctype html")) {
+                mimeMessageHelper.setText(content, true);
+            } else {
+                mimeMessageHelper.setText(content);
+            }
+            javaMailSender.send(mimeMessageHelper.getMimeMessage());
+        } catch (Exception e) {
+            log.error("邮件发送失败：", e);
+        }
     }
 
     /**
@@ -122,9 +151,11 @@ public class ProcessMailService {
      */
     public String convertToHtml(String instanceId, String definitionName,
                                 String taskName, String starterName,
-                                String auditor, String content) {
+                                String auditor, String content, String attachmentPart) {
         content = "<strong>申请单号: " + instanceId + "，申请人: " + starterName + "，申请类型: " + definitionName + "，审批环节: " + taskName + "</strong>" +
-                "<p>审批人: " + auditor + "，<a href=\"" + generateRouteUrl(instanceId) + "\">点击跳转至系统</a><br></p>" +
+                "<p>审批人: " + auditor + "，<a href=\"" + generateRouteUrl(instanceId)
+                + "\">点击跳转至系统(提示：请使用edge浏览器打开，若不幸打开了ie，请复制ie浏览器地址栏，粘贴至edge的地址栏)</a><br></p>" +
+                attachmentPart +
                 "<div class=\"remark-p\">" + content + "</div>";
         StringBuilder sb = new StringBuilder();
         try (InputStream in = ProcessService.class.getClassLoader().getResourceAsStream("mailcontent.html");
@@ -133,7 +164,7 @@ public class ProcessMailService {
             String line;
             while ((line = br.readLine()) != null) {
                 sb.append(line);
-                if (line.equals("<base>")) {
+                if (line.equals("<head>")) {
                     sb.append("<base href=\"").append(webUrl).append("\">");
                 }
                 if (line.equals("<body>")) {
@@ -162,7 +193,7 @@ public class ProcessMailService {
         }
         String subject = instance.starterName + "提交了【" + instance.name + "】";
         String content = "<!doctype html><html><div>" + subject + "，申请单号：" + instance.id +
-                "，可登录系统查看: <a href=\"" + generateRouteUrl(instance.id) + "\">跳转链接</a></div><p>以上消息来自" + TAG + "，无需回复</p></html>";
+                "，可登录系统查看: <a href=\"" + generateRouteUrl(instance.id) + "\">点击跳转至系统(提示：请使用edge浏览器打开，若不幸打开了ie，请复制ie浏览器地址栏，粘贴至edge的地址栏)</a></div><p>以上消息来自" + TAG + "，无需回复</p></html>";
         send(TAG + subject, content, emailSet, null, null);
     }
 
@@ -181,7 +212,7 @@ public class ProcessMailService {
         String remark = dto.remark;
         String subject = sender + "指派了一个任务请您处理";
         String content = "<!doctype html><html><div>【" + sender + "】指派了一条任务给您，申请单号:" + task.instanceId
-                + "，可登录系统查看: <a href=\"" + generateRouteUrl(task.instanceId) + "\">跳转链接</a></div><p>" + remark + "</p></html>";
+                + "，可登录系统查看: <a href=\"" + generateRouteUrl(task.instanceId) + "\">点击跳转至系统(提示：请使用edge浏览器打开，若不幸打开了ie，请复制ie浏览器地址栏，粘贴至edge的地址栏)</a></div><p>" + remark + "</p></html>";
         send(TAG + subject, content,
                 Collections.singleton(email), null, null);
     }
@@ -189,13 +220,12 @@ public class ProcessMailService {
     /**
      * 发送同意审批的邮件
      *
-     * @param auditor  审批人
      * @param instance
      * @param task
-     * @param remark
+     * @param processOpinion 审批意见
      */
     @Async
-    public void sendApproveMail(UserDetails auditor, ProcessInstance instance, ProcessTask task, String remark) {
+    public void sendApproveMail(ProcessInstance instance, ProcessTask task, ProcessOpinion processOpinion) {
         String emails = instance.emails;
         Set<String> emailSet = Arrays.stream(emails.split(",")).filter(Objects::nonNull)
                 .filter(email -> MAIL_PATTERN.matcher(email).find()).collect(Collectors.toSet());
@@ -204,45 +234,49 @@ public class ProcessMailService {
         }
         // 当前审批人审批意见(同意)
         String subject = instance.starterName + "【" + instance.name + "】审批意见";
-        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName, auditor.username, remark);
-        List<File> attachments = retrieveAttachments(task);
-        send(TAG + subject, content, emailSet, null, attachments);
+        String attachmentPart = retrieveAttachments(processOpinion.attachments);
+        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName,
+                processOpinion.username, processOpinion.remark, attachmentPart);
+        send(TAG + subject, content, emailSet, null, null);
     }
 
     /**
      * 发送一个邮件通知被退回的环节中负责审批的人或角色：任务被退回
      *
-     * @param auditor  审批人(发起退回的人)
      * @param instance
      * @param task
+     * @param processOpinion 审批意见
      * @param emailSet
      */
-    public void sendBackMail(UserDetails auditor, ProcessInstance instance, ProcessTask task, String remark, Set<String> emailSet) {
+    public void sendBackMail(ProcessInstance instance, ProcessTask task,
+                             ProcessOpinion processOpinion, Set<String> emailSet) {
         if (CollectionUtils.isEmpty(emailSet)) {
             return;
         }
         String subject = instance.starterName + "【" + instance.name + "】被退回";
-        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName, auditor.username, remark);
-        List<File> attachments = retrieveAttachments(task);
-        send(TAG + subject, content, emailSet, null, attachments);
+        String attachmentPart = retrieveAttachments(processOpinion.attachments);
+        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName,
+                processOpinion.username, processOpinion.remark, attachmentPart);
+        send(TAG + subject, content, emailSet, null, null);
     }
 
     /**
      * 发送审批被拒绝的邮件，一般来说，被拒绝只需要申请人收到邮件
      *
-     * @param auditor
      * @param instance
      * @param task
+     * @param processOpinion
      * @param email
      */
-    public void sendRejectMail(UserDetails auditor, ProcessInstance instance, ProcessTask task, String remark, String email) {
+    public void sendRejectMail(ProcessInstance instance, ProcessTask task, ProcessOpinion processOpinion, String email) {
         if (email != null && !MAIL_PATTERN.matcher(email).find()) {
             return;
         }
         String subject = instance.starterName + "【" + instance.name + "】被拒绝";
-        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName, auditor.username, remark);
-        List<File> attachments = retrieveAttachments(task);
-        send(TAG + subject, content, Collections.singleton(email), null, attachments);
+        String attachmentsPart = retrieveAttachments(processOpinion.attachments);
+        String content = convertToHtml(instance.id, instance.name, task.name, instance.starterName,
+                processOpinion.username, processOpinion.remark, attachmentsPart);
+        send(TAG + subject, content, Collections.singleton(email), null, null);
     }
 
     /**
@@ -257,7 +291,7 @@ public class ProcessMailService {
         }
         String subject = instance.starterName + "【" + instance.name + "】待您审批";
         String content = "<!doctype html><html><div>" + subject + "，申请单号:" + instance.id
-                + "，可登录系统查看: <a href=\"" + generateRouteUrl(instance.id) + "\">跳转链接</a></div></html>";
+                + "，可登录系统查看: <a href=\"" + generateRouteUrl(instance.id) + "\">点击跳转至系统(提示：请使用edge浏览器打开，若不幸打开了ie，请复制ie浏览器地址栏，粘贴至edge的地址栏)</a></div></html>";
         send(TAG + subject, content,
                 emailSet, null, null);
     }
@@ -279,22 +313,25 @@ public class ProcessMailService {
     }
 
     /**
-     * 获取附件
+     * 获取附件，生成html附件区（不会真的把文件放在邮件附件区，只是放下载链接）
      *
-     * @param task
      * @return
      */
-    private List<File> retrieveAttachments(ProcessTask task) {
-        List<File> attachments = null;
-        if (StringUtils.hasText(task.attachments)) {
-            attachments = new ArrayList<>();
-            ArrayNode arrayNode = JsonUtil.readValue(task.attachments, ArrayNode.class);
+    private String retrieveAttachments(String attachments) {
+        StringBuilder attachmentsPart = new StringBuilder();
+        if (StringUtils.hasText(attachments)) {
+            attachmentsPart = new StringBuilder("<ul style='padding:8px 16px;' class='bg-neutral-50'>")
+                    .append("<li class=\"li-none\"><span style=\"font-weight: 700\">附件区：</span></li>");
+            ArrayNode arrayNode = JsonUtil.readValue(attachments, ArrayNode.class);
             for (int i = 0; i < arrayNode.size(); i++) {
                 JsonNode jsonNode = arrayNode.get(i);
                 String fileName = jsonNode.get("name").asText();
-                attachments.add(new File(uploadPath + File.separator + fileName));
+                String url = jsonNode.get("url").asText();
+                attachmentsPart.append("<li class=\"li-none\"><a style=\"color:#1890ff\" href=\"")
+                        .append(url).append("\">").append(fileName).append("</a></li>");
             }
+            attachmentsPart.append("</ul>");
         }
-        return attachments;
+        return attachmentsPart.toString();
     }
 }

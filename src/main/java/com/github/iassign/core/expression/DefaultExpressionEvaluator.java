@@ -1,13 +1,17 @@
 package com.github.iassign.core.expression;
 
 import com.github.core.ApiException;
+import com.github.iassign.Constants;
 import com.ql.util.express.DefaultContext;
 import com.ql.util.express.ExpressRunner;
 import com.ql.util.express.config.QLExpressRunStrategy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
+import org.springframework.util.CollectionUtils;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -32,24 +36,33 @@ public class DefaultExpressionEvaluator implements ExpressionEvaluator {
         }
     }
 
-    public Object evaluate(String expression, Map<String, Object> variables) throws Exception {
-        validate(expression);
+    public Object evaluate(String rawExpression, Map<String, Object> variables) throws Exception {
+        String expression = validate(rawExpression);
         DefaultContext<String, Object> context = new DefaultContext<>();
         context.putAll(variables);
-
-        return runner.execute(expression, context, null, true, false);
+        context.put(Constants.PROCESS_CONTEXT, new HashMap<String, Object>());
+        Object result = runner.execute(expression, context, null, true, false);
+        Map<String, Object> variablesIN = (HashMap<String, Object>) context.get(Constants.PROCESS_CONTEXT);
+        if (!CollectionUtils.isEmpty(variablesIN)) {
+            variables.put(Constants.PROCESS_CONTEXT, variablesIN);
+        }
+        return result;
     }
 
+
     /**
-     * 运行前的校验，过滤一些危险的关键字
+     * 运行前的校验，过滤一些危险的关键字和代码注释
      *
      * @param expression
      */
-    private void validate(String expression) throws Exception {
+    private String validate(String expression) throws Exception {
         if (Stream.of("class", "Class", "import").anyMatch(expression::contains)) {
             throw new ApiException(500, "script contains a risk operation");
         }
-        runner.parseInstructionSet(expression);
+        // no comment expression
+        String ncExpression = expression.replaceAll("(//.*\n)|(/\\*[\\S\\s]+?\\*/)", "");
+        runner.parseInstructionSet(ncExpression);
+        return ncExpression;
     }
 
     public void clear() {

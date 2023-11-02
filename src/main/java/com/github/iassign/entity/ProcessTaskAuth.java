@@ -14,7 +14,7 @@ public class ProcessTaskAuth {
     public String referenceId;
     public String name;
     public String avatar;
-    public Integer type;
+    public Integer type; // 参考ID的类型 0-用户 1-角色
 
     public ProcessTaskAuth() {
 

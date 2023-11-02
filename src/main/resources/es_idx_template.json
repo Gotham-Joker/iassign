@@ -1,0 +1,56 @@
+{
+  "index_patterns": [
+    "process_instance-*"
+  ],
+  "template": {
+    "settings": {},
+    "mappings": {
+      "dynamic": false,
+      "properties": {
+        "id": {
+          "type": "keyword"
+        },
+        "definitionId": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "keyword"
+        },
+        "name": {
+          "index": false,
+          "type": "keyword"
+        },
+        "starter": {
+          "type": "keyword"
+        },
+        "starterName": {
+          "index": false,
+          "type": "keyword"
+        },
+        "deptName": {
+          "type": "keyword"
+        },
+        "deptId": {
+          "type": "keyword",
+          "index": false
+        },
+        "createTime": {
+          "type": "date",
+          "format": "yyyy-MM-dd HH:mm:ss"
+        },
+        "content": {
+          "type": "text",
+          "analyzer": "ik_max_word",
+          "search_analyzer": "ik_smart"
+        }
+      }
+    },
+    "aliases": {
+      "i_assign_inst": {}
+    }
+  },
+  "priority": 500,
+  "_meta": {
+    "description": "I_ASSIGN 流程实例数据"
+  }
+}

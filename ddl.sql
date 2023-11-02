@@ -1,3 +1,40 @@
+create table oauth2_access_token
+(
+	access_token varchar(255) not null
+		primary key,
+	user_id varchar(64) null,
+	client_id varchar(255) null,
+	expire_in int(8) null,
+	refresh_token varchar(255) null,
+	refresh_token_create_time datetime null,
+	access_token_create_time datetime null
+)
+collate=utf8mb4_general_ci;
+
+create table oauth2_authorization_code
+(
+	code varchar(255) not null
+		primary key,
+	user_id varchar(255) null,
+	client_id varchar(255) null,
+	redirect_uri varchar(255) null,
+	state varchar(255) null,
+	create_time datetime null
+)
+collate=utf8mb4_general_ci;
+
+create table oauth2_client
+(
+	client_id varchar(255) not null
+		primary key,
+	client_secret varchar(255) null,
+	client_name varchar(255) null,
+	redirect_uri varchar(255) null,
+	mark varchar(255) null comment '备注',
+	owner_id varchar(255) null
+)
+collate=utf8mb4_general_ci;
+
 create table sys_dept
 (
 	id varchar(64) not null
@@ -98,9 +135,9 @@ create table sys_user
 
 create table sys_user_role
 (
-	user_id varchar(20) null,
-	role_id varchar(20) null,
-	primary key (user_id,role_id)
+	user_id varchar(20) not null,
+	role_id varchar(20) not null,
+	primary key (user_id, role_id)
 )
 comment '用户-角色 关联表' charset=utf8mb4;
 
@@ -144,7 +181,8 @@ create table t_process_definition
 	create_time datetime null,
 	update_time datetime null,
 	group_name varchar(255) null,
-	ru_id varchar(48) null comment '总是关联最新的流程图版本'
+	ru_id varchar(48) null comment '总是关联最新的流程图版本',
+	managers varchar(100) null comment '流程数据管理者id列表'
 )
 charset=utf8mb4;
 
@@ -192,6 +230,37 @@ create table t_process_instance
 )
 comment '流程实例表' charset=utf8mb4;
 
+create index t_process_instance_definition_id_index
+	on t_process_instance (definition_id);
+
+create table t_process_opinion
+(
+	id varchar(20) not null
+		primary key,
+	instance_id varchar(20) null,
+	task_id varchar(20) null,
+	user_id varchar(20) null,
+	username varchar(100) null,
+	avatar varchar(255) null,
+	email varchar(255) null,
+	attachments text null,
+	remark text null,
+	create_time datetime null,
+	assign_id varchar(20) null comment '被指派人ID',
+	assign_name varchar(100) null comment '被指派人姓名',
+	assign_avatar varchar(255) null comment '被指派人头像',
+	assign_mail varchar(255) null comment '被指派人邮箱',
+	operation tinyint(2) null comment '操作标志位 0-否决 1-同意 2-退回 3-指派'
+)
+comment '流程审批意见表';
+
+create index t_process_opinion_instance_id_task_id_index
+	on t_process_opinion (instance_id, task_id);
+
+create index t_process_opinion_user_id_create_time_index
+	on t_process_opinion (user_id, create_time);
+
+
 create table t_process_task
 (
 	id varchar(20) not null
@@ -202,25 +271,15 @@ create table t_process_task
 	form_instance_id varchar(20) null comment '表单实例ID',
 	variable_id varchar(20) null comment '变量ID',
 	name varchar(255) null comment '任务名称',
-	assign_id varchar(20) null comment '指派用户ID',
 	handler_id varchar(20) null comment '受理人ID',
 	pre_handler_id varchar(20) null comment '上一受理人ID',
 	income_id varchar(64) null comment '入口连接线ID',
 	dag_node_id varchar(20) null comment 'dag节点ID',
-	remark text null comment '备注',
-	assign_remark text null comment '指派人的备注',
-	attachments text null comment '附件清单',
 	status tinyint null comment 'NONE(0)-无 PENDING(1)-待认领 CLAIMED(2)-已受理 ASSIGNED(3)-已指派 SUCCESS(4)-审批通过 REJECTED(5)-拒绝 BACK(6)-退回 FAILED(7)-失败',
 	create_time datetime null,
-	assign_time datetime null comment '受理时间或指派时间 指派其实就默认受理了之后再转交给别人，所以时间用同一个字段',
 	update_time datetime null,
 	user_node tinyint not null comment '是否是用户审批环节：0-不是（系统自动处理） 1：是',
-	handler_avatar varchar(255) null,
-	handler_name varchar(20) null,
-	handler_email varchar(255) null,
-	assign_avatar varchar(250) null comment '被指派人头像',
-	assign_name varchar(20) null,
-	assign_email varchar(255) null
+	countersign tinyint(2) null comment '会签标志 0-否 1-是'
 )
 comment '流程任务表' charset=utf8mb4;
 
@@ -254,15 +313,15 @@ INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES (
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642105422302564354', '9100', '部门管理', null, '/system/dept', 9330, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642186485959905282', '1563425283947749377', '表单管理', null, '/form/form-manage', 8400, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642198788675620865', '1563425283947749377', '发起审批', null, '/process/process-list', 8150, 1);
-INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642207119851016193', '1563425283947749377', '我的申请', null, '/process/process-instance', 8160, 1);
-INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642207226415697922', '1563425283947749377', '我的待办', null, '/process/todo-list', 8170, 1);
+INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642207119851016193', '1563425283947749377', '我的申请', null, '/process/process-instance', 8120, 1);
+INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1642207226415697922', '1563425283947749377', '待办事项', null, '/process/todo-list', 8110, 1);
+INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('1723948375444471809', '1563425283947749377', '已办事项', null, '/process/checked-list', 8111, 1);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9000', '0', 'SYSTEM', '', null, 9000, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9100', '9000', '系统设置', 'setting', '', 9100, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9200', '9100', '用户管理', null, '/system/user', 9200, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9300', '9100', '角色管理', null, '/system/role', 9300, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9400', '9100', '菜单管理', null, '/system/menu', 9400, 0);
 INSERT INTO sys_menu (id, pid, text, icon, link, weight, all_available) VALUES ('9500', '9100', '权限管理', null, '/system/permission', 9500, 0);
-
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1563423133494534145', null, '添加用户', 'uadd', '/api/users', 'POST');
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1563423240075993090', null, '角色管理', 'rm', '/api/roles/**', '');
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1563423358409891841', null, '菜单管理', 'mm', '/api/menus/**', '');
@@ -277,3 +336,4 @@ INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1696817
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1698598279797903362', null, '流程修改', 'pdmd', '/api/process-definition', 'PUT');
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1698598363331661826', null, '流程删除', 'pdrm', '/api/process-definition', 'DELETE');
 INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1698690283203850241', null, '指派', 'assign', '/api/process-task/assign', 'POST');
+INSERT INTO sys_permission (id, scope, name, mark, url, method) VALUES ('1722555006790369282', null, '流程导出', 'pexp', '/api/process-instance-index/download', 'POST');

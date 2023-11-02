@@ -2,8 +2,6 @@ package com.github.iassign.service;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.github.authorization.Authentication;
-import com.github.iassign.entity.SysUser;
-import com.github.iassign.mapper.SysUserMapper;
 import com.github.authorization.AuthenticationContext;
 import com.github.authorization.UserDetails;
 import com.github.iassign.Constants;
@@ -22,6 +20,8 @@ import com.github.iassign.core.expression.DefaultExpressionEvaluator;
 import com.github.iassign.core.expression.ExpressionEvaluator;
 import com.github.iassign.dto.ProcessTaskDTO;
 import com.github.iassign.mapper.ProcessDefinitionMapper;
+import com.github.iassign.mapper.SysUserMapper;
+import com.github.iassign.vo.TaskAuthVO;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
@@ -51,6 +51,8 @@ public class ProcessService {
     @Autowired
     private ProcessTaskService processTaskService;
     @Autowired
+    private ProcessOpinionService processOpinionService;
+    @Autowired
     private FormService formService;
     @Autowired
     private ProcessVariablesService processVariablesService;
@@ -78,12 +80,13 @@ public class ProcessService {
         // interval(8,hour).subscribe(()=>expressionEvaluator.clear())
     }
 
+
     /**
      * 启动流程实例
      *
      * @return
      */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional
     public ProcessInstance startInstance(ProcessStartDTO dto) throws Exception {
         UserDetails userDetails = AuthenticationContext.current().getDetails();
         // 流程发起人
@@ -92,6 +95,9 @@ public class ProcessService {
         ProcessDefinition definition = processDefinitionMapper.selectById(dto.definitionId);
         if (definition == null) {
             throw new ApiException(500, "工作流不存在，可能已被删除，请刷新页面");
+        }
+        if (!Boolean.TRUE.equals(definition.status)) {
+            throw new ApiException(500, "流程未部署，禁止启动");
         }
 //        SysUser sysUser = sysUserMapper.selectById(dto.starter);
 
@@ -119,13 +125,11 @@ public class ProcessService {
             contextVariables.putAll(dto.variables);
         }
         // 保存流程变量到数据库
-        if (!contextVariables.isEmpty()) {
-            ProcessVariables processVariables = new ProcessVariables();
-            processVariables.instanceId = instance.id;
-            processVariables.data = JsonUtil.toJson(contextVariables);
-            processVariablesService.save(processVariables);
-            instance.variableId = processVariables.id; // 绑定为全局变量 (整个流程都会生效)
-        }
+        ProcessVariables processVariables = new ProcessVariables();
+        processVariables.instanceId = instance.id;
+        processVariables.data = JsonUtil.toJson(contextVariables);
+        processVariablesService.save(processVariables);
+        instance.variableId = processVariables.id; // 绑定为全局变量 (整个流程都会生效)
 
         // 创建表达式计算器，用于处理各种动态条件
         ExpressionEvaluator expressionEvaluator = new DefaultExpressionEvaluator(applicationContext);
@@ -148,8 +152,17 @@ public class ProcessService {
         // 以任务的形式记录开始节点
         ProcessTask startTask = processTaskService.createStartTask(instance, startNode);
         processLogger.info("开始节点任务ID:{}", startTask.id);
-        // 进入下一个环节
-        move(dagGraph, instance, contextVariables);
+
+        // 将当前流程放进去
+        contextVariables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+        try {
+            // 进入下一个环节
+            move(dagGraph, instance, contextVariables);
+        } catch (Exception e) {
+            // 删除ES中的内容
+            processInstanceIndexService.delete(instance);
+            throw e;
+        }
 
         // 发邮件
         processMailService.sendStartMail(instance);
@@ -166,77 +179,94 @@ public class ProcessService {
         ProcessTask task = processTaskService.selectById(dto.taskId);
         ProcessInstance instance = processInstanceService.selectById(task.instanceId);
         // 校验
-        if (instance.status != ProcessInstanceStatus.RUNNING &&
-                task.status != ProcessTaskStatus.ASSIGNED
+        if (instance.status != ProcessInstanceStatus.RUNNING) {
+            throw new ApiException(500, "流程不是运行状态");
+        }
+        if (task.status != ProcessTaskStatus.ASSIGNED
                 && task.status != ProcessTaskStatus.CLAIMED) {
             throw new ApiException(500, "操作无效，当前审批任务可能已被其他人处理，请刷新");
         }
-        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
+        // 判断当前用户是否有权限审批
         UserDetails currentUser = AuthenticationContext.current().getDetails();
-        String auditorId = currentUser.getId();
-        Logger processLogger = ProcessLogger.logger(instance.id);
-        String remark = dto.safeRemark();
-        // 审批的时候，判断当前处理人是指派人还是受理人
-        if (auditorId.equals(task.assignId)) {
-            task.assignRemark = remark;
-            task.assignTime = new Date();
-        } else if (auditorId.equals(task.handlerId)) {
-            task.remark = remark;
-        } else { // 既不是受理人也不是指派人，抛出异常，不给审批
-            processLogger.error("当前用户无法审批[{}]：任务已被受理，但是此用户既不是受理人也不是被指派人。", auditorId);
+        TaskAuthVO taskAuthVO = processTaskService.validateAuthorize(currentUser.getId(), task);
+        if (!taskAuthVO.canAudit) {
             throw new ApiException(500, "当前用户无法审批");
         }
-        // 设置附件
-        task.attachments = dto.attachments;
+        Logger processLogger = ProcessLogger.logger(instance.id);
         // 设置邮件接收人并批量发送
         instance.emails = dto.emails;
 
+        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
         DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
         Map<String, Object> contextVariables = processVariablesService.getVariables(instance.variableId);
 
-        // 任务变量如果和全局变量命名冲突，那么任务变量比全局变量优先级高
-        // 但是任务变量去到下一个“用户审批”环节就会失效(网关、系统处理环节不会失效)
+        // 变量优先级： 全局变量 < 表单变量 < 临时变量
+        // 表单变量和临时变量去到下一个“用户审批”环节就会失效(网关、系统处理环节会保持有效)
         if (dto.variables != null && !dto.variables.isEmpty()) {
+            ProcessVariables processVariables = new ProcessVariables();
+            processVariables.instanceId = task.instanceId;
+            processVariables.data = JsonUtil.toJson(dto.variables);
+            processVariablesService.save(processVariables);
+            task.variableId = processVariables.id;
             contextVariables.putAll(dto.variables);
         }
+        // 提交审批意见 并发送邮件提醒，注意，此处是的邮件内容是 ”审批意见“
+        ProcessOpinion processOpinion = processOpinionService.submitOpinion(currentUser, instance, task, dto);
         switch (dto.operation) {
             case APPROVE:
-                task.status = ProcessTaskStatus.SUCCESS;
-                // ****** 将表单变量放到上下文 ******
+                // ********* 把表单中的变量整合到上下文变量中(表单临时变量优先级低于任务临时变量dto.variables) *********
                 if (dto.formData != null && !dto.formData.isEmpty()) {
                     String formDefinitionId = (String) dto.formData.get("id");
-                    FormInstance formInstance = formService.saveInstance(formDefinitionId, dto.formData, 1);
-                    task.formInstanceId = formInstance.id;
+                    FormInstance formInstance;
+                    if (StringUtils.hasText(task.formInstanceId)) {
+                        formInstance = formService.updateInstance(task.formInstanceId, dto.formData, 1);
+                    } else {
+                        formInstance = formService.saveInstance(formDefinitionId, dto.formData, 1);
+                        task.formInstanceId = formInstance.id;
+                    }
                     Map<String, Object> formVariables = JsonUtil.readValue(formInstance.variables, Map.class);
-                    contextVariables.putAll(formVariables);
+                    // 表单变量优先级较临时变量低
+                    if (dto.variables != null) {
+                        formVariables.forEach((k, v) -> {
+                            if (!dto.variables.containsKey(k)) {
+                                contextVariables.put(k, v);
+                            }
+                        });
+                    } else {
+                        contextVariables.putAll(formVariables);
+                    }
                 }
-                // ****** 将临时变量放到上下文 ******
-                if (dto.variables != null && !dto.variables.isEmpty()) {
-                    ProcessVariables processVariables = new ProcessVariables();
-                    processVariables.instanceId = task.instanceId;
-                    processVariables.data = JsonUtil.toJson(dto.variables);
-                    processVariablesService.save(processVariables);
-                    task.variableId = processVariables.id;
+                // 发送邮件提醒
+                processMailService.sendApproveMail(instance, task, processOpinion);
+                // 等待会签结束，当前任务节点结束才继续往下执行
+                if (!processTaskService.canFinish(task)) {
+                    processLogger.info("当前用户<{}>[{}]已提交审批意见，但当前审批环节<{}>[{}] 还处于'会签'状态（需要等其他人提交审批意见）。",
+                            currentUser.username, currentUser.id, task.name, task.id);
+                    instance.handlerId = currentUser.id;
+                    processTaskService.updateById(task);
+                    processInstanceService.updateById(instance);
+                    return processTaskService.auditListAfter(task.instanceId, task.id);
                 }
+                task.status = ProcessTaskStatus.SUCCESS;
+                task.updateTime = new Date();
                 processTaskService.updateById(task);
-                // 发送通知
-                processMailService.sendApproveMail(currentUser, instance, task, remark);
                 processLogger.info("<{}>[{}] 审批通过，进入下一环节", task.name, task.id);
+                contextVariables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
                 // 继续往下执行
                 move(dagGraph, instance, contextVariables);
                 break;
-            case REJECT: // 拒绝的话那流程就结束了
-                task.status = ProcessTaskStatus.REJECTED;
-                processTaskService.updateById(task);
-                instance.status = ProcessInstanceStatus.FAILED;
+            case REJECT:
+                // 拒绝的话那流程就结束了(拒绝也可以当成是退回申请人)
+                processTaskService.reject(task);
+                instance.status = ProcessInstanceStatus.REJECTED;
                 instance.updateTime = new Date();
                 processInstanceService.updateById(instance);
                 processInstanceIndexService.updateStatus(instance);
-                processLogger.info("审批被拒绝:<{}>[{}]", task.name, task.id);
+                processLogger.info("审批环节<{}>[{}]被<{}>[{}]拒绝", task.name, task.id, currentUser.username, currentUser.id);
                 // 把流程实例归档
                 // 给申请人发送通知，被拒绝了
                 SysUser sysUser = sysUserMapper.selectById(instance.starter);
-                processMailService.sendRejectMail(currentUser, instance, task, remark, sysUser.email);
+                processMailService.sendRejectMail(instance, task, processOpinion, sysUser.email);
                 sysMessageService.sendRejectMsg(instance, task, AuthenticationContext.details());
                 break;
             case BACK:
@@ -248,13 +278,14 @@ public class ProcessService {
                 instance.handlerId = ""; // 清空当前审批人信息
                 instance.handlerName = ""; // 清空当前审批人信息
                 processInstanceService.updateById(instance);
-                processLogger.info("任务回退:{}[{}] ==> 回退至:{}[{}]", task.name, task.id, backwardTask.name, backwardTask.id);
+                processLogger.info("审批环节{}[{}]被<{}>[{}]回退: ==> 回退至:{}[{}]", task.name, task.id,
+                        currentUser.username, currentUser.id, backwardTask.name, backwardTask.id);
                 UserTaskNode userTaskNode = dagGraph.obtainUserTaskNode(backwardTask.dagNodeId);
                 // 授权，哪些人能收到退回的任务
                 contextVariables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
                 Set<String> emailSet = processTaskService.authorize(instance, backwardTask, userTaskNode, contextVariables);
                 // 给这些人发送通知，有一个回退的任务待受理
-                processMailService.sendBackMail(currentUser, instance, task, remark, emailSet);
+                processMailService.sendBackMail(instance, task, processOpinion, emailSet);
                 // 发送站内信，有一个待办事项
                 sysMessageService.sendAsyncTodoMsg(instance, backwardTask, emailSet);
                 break;
@@ -272,7 +303,7 @@ public class ProcessService {
      */
     public void move(DagGraph dagGraph, ProcessInstance instance, Map<String, Object> variables) {
         if (instance.status != ProcessInstanceStatus.RUNNING) {
-            throw new ApiException(500, "流程不能重复执行");
+            throw new ApiException(500, "流程不是运行状态");
         }
         // 加入当前流程实例这个变量
         while (true) {
@@ -282,7 +313,9 @@ public class ProcessService {
             DagNode dagNode = dagEdge.targetNode;
             // 移动指针，下一个节点作为当前节点
             instance.dagNodeId = dagNode.id;
+            // 每次都放入最新的实例快照到上下文中
             if (dagNode instanceof UserTaskNode) {
+                // 处理用户审批节点
                 processInstanceService.handleUserTaskNode(dagNode, dagEdge, instance, variables);
                 break;
             } else if (dagNode instanceof EndNode) {
@@ -290,10 +323,11 @@ public class ProcessService {
                 // TODO 把任务和流程实例迁移到历史表
                 break; // 终止
             } else if (dagNode instanceof ExecutableNode) {
-                // 遇到系统节点，先创建一个“系统任务” 提交异步任务
+                // MARK-01 移动指针，当前处理人变成了上一处理人，并创建相关的任务
                 instance.preHandlerId = instance.handlerId;
                 ProcessTask task = processTaskService.createTask(instance, dagEdge, ProcessTaskStatus.RUNNING);
                 executeAsync(dagGraph, (ExecutableNode) dagNode, task, instance, variables, AuthenticationContext.current());
+                // 不要阻塞
                 return;
             } else {
                 processInstanceService.handleOtherNode(dagNode, dagEdge, instance);
@@ -310,34 +344,26 @@ public class ProcessService {
         processInstanceService.updateById(instance);
     }
 
-    /**
-     * 异步执行
-     *
-     * @param dagGraph
-     * @param executableNode
-     * @param instance
-     * @param variables
-     * @param authentication 当前登录用户
-     */
-    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance,
-                              Map<String, Object> variables, Authentication authentication) {
-        CompletableFuture.supplyAsync(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables), threadPoolTaskExecutor)
-                .whenComplete((result, err) -> {
-                    if (err != null) {
-                        ProcessLogger.logger(instance.id).error("流程运行异常", err);
-                    } else {
-                        if (result != null) {
-                            try {
-                                processInstanceService.updateById(instance);
-                                AuthenticationContext.setAuthentication(authentication);
-                                move(dagGraph, instance, variables);
-                            } finally {
-                                AuthenticationContext.clearContext();
-                            }
-                        }
+    private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance, Map<String, Object> variables, Authentication authentication) {
+        CompletableFuture.supplyAsync(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables),
+                threadPoolTaskExecutor).whenComplete((result, err) -> {
+            if (err == null) {
+                if (result != null) {
+                    try {
+                        processInstanceService.updateById(instance);
+                        AuthenticationContext.setAuthentication(authentication);
+                        variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+                        move(dagGraph, instance, variables);
+                    } finally {
+                        AuthenticationContext.clearContext();
                     }
-                });
+                }
+            } else {
+                ProcessLogger.logger(instance.id).error("流程运行异常", err);
+            }
+        });
     }
+
 
     /**
      * 撤回流程申请
@@ -371,7 +397,7 @@ public class ProcessService {
     public List<ProcessTask> recover(String taskId) {
         ProcessTask task = processTaskService.selectById(taskId);
         if (task == null) {
-            throw new ApiException(404, "任务不存在");
+            throw new ApiException(404, "任务不存在:" + taskId);
         }
         if (task.status != ProcessTaskStatus.FAILED) {
             throw new ApiException(500, "失败的任务才能恢复");
@@ -380,25 +406,30 @@ public class ProcessService {
         if (instance.status != ProcessInstanceStatus.FAILED) {
             throw new ApiException(500, "失败的流程才能恢复");
         }
+
         // 取出流程图
         ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
         if (definitionRu == null) {
-            throw new ApiException(500, "恢复失败，可能是因为流程图已被管理员删除");
+            throw new ApiException(500, "恢复失败，可能时因为流程图已被管理员删除");
         }
         Logger processLogger = ProcessLogger.logger(instance.id);
         DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
-        final Map context = new HashMap();
-        // 取出变量
+        final Map context = new HashMap<>();
+        // 取出上下文变量
         if (StringUtils.hasText(task.variableId)) {
             ProcessVariables variables = processVariablesService.selectById(task.variableId);
             context.putAll(JsonUtil.readValue(variables.data, Map.class));
         }
-        // 作业恢复为运行中
+        // 恢复作业为运行中
+        task.status = ProcessTaskStatus.RUNNING;
+        processTaskService.updateById(task);
+        // 恢复流程状态为“运行中”
         instance.status = ProcessInstanceStatus.RUNNING;
         processInstanceService.updateById(instance);
         DagNode dagNode = dagGraph.obtainDagNode(instance.dagNodeId);
+        // 开搞，恢复作业
         Authentication authentication = AuthenticationContext.current();
-        processLogger.warn("用户[{}]在尝试恢复失败的作业", authentication.getId());
+        processLogger.warn("用户[{}]正在尝试恢复失败的作业", authentication.getId());
         executeAsync(dagGraph, (ExecutableNode) dagNode, task, instance, context, authentication);
         return processTaskService.auditListAfter(instance.id, taskId);
     }

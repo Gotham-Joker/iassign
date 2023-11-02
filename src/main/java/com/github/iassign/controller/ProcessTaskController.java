@@ -2,6 +2,9 @@ package com.github.iassign.controller;
 
 import com.github.iassign.dto.ProcessClaimAssignDTO;
 import com.github.iassign.dto.ProcessTaskDTO;
+import com.github.iassign.entity.ProcessTask;
+import com.github.iassign.service.ProcessOpinionService;
+import com.github.iassign.vo.CheckedListQuery;
 import com.github.iassign.vo.ProcessTaskTodoQuery;
 import com.github.iassign.service.ProcessService;
 import com.github.iassign.service.ProcessTaskService;
@@ -19,9 +22,11 @@ import java.util.Map;
 @RequestMapping("/api/process-task")
 public class ProcessTaskController {
     @Autowired
+    private ProcessService processService;
+    @Autowired
     private ProcessTaskService processTaskService;
     @Autowired
-    private ProcessService processService;
+    private ProcessOpinionService processOpinionService;
 
     /**
      * 认领
@@ -70,11 +75,24 @@ public class ProcessTaskController {
     }
 
     /**
-     * 查询待办列表
+     * 查询待办事项
      */
     @GetMapping("todo-list")
-    public Result queryTodoList(ProcessTaskTodoQuery processTaskTodoQuery) {
-        return Result.success(processTaskService.queryTodoList(processTaskTodoQuery));
+    public Result queryTodoList(@RequestParam(defaultValue = "1") Integer page,
+                                @RequestParam(defaultValue = "10") Integer size,
+                                ProcessTaskTodoQuery processTaskTodoQuery) {
+        return Result.success(processTaskService.queryTodoList(page, size, processTaskTodoQuery));
+    }
+
+    /**
+     * 查询已办事项
+     */
+    @GetMapping("checked-list")
+    public Result checkedList(@RequestParam(defaultValue = "1") Integer page,
+                              @RequestParam(defaultValue = "10") Integer size,
+                              CheckedListQuery query) {
+        query.userId = AuthenticationContext.current().getId();
+        return Result.success(processOpinionService.queryCheckedList(page, size, query));
     }
 
     /**
@@ -93,7 +111,7 @@ public class ProcessTaskController {
      * @return
      */
     @PostMapping
-    public Result handleTask(@Validated @RequestBody ProcessTaskDTO dto) throws Exception {
+    public Result handleTask(@Validated @RequestBody ProcessTaskDTO dto) {
         return Result.success(processService.handleTask(dto));
     }
 
@@ -101,12 +119,17 @@ public class ProcessTaskController {
      * 判查询任务审批权限以及判断当前用户是否有审批权限
      */
     @GetMapping("auth")
-    public Result judgePermission(@RequestParam String id) {
-        return processTaskService.evaluatePermission(id);
+    public Result validateAuthorize(@RequestParam String id) {
+        ProcessTask task = processTaskService.selectById(id);
+        if (task == null) {
+            return Result.error("任务不存在");
+        }
+        return Result.success(processTaskService.validateAuthorize(AuthenticationContext.current().getId(), task));
     }
 
+
     /**
-     * 恢复失败的作业
+     * 回退失败的任务至上一审批环节
      */
     @PostMapping("recover")
     public Result recover(@RequestParam String taskId) {
