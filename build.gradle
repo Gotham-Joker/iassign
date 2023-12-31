@@ -60,7 +60,7 @@ configurations {
 }
 
 // using file appender instead of console appender while packaging.
-tasks.getByName('processResources') {
+/*tasks.getByName('processResources') {
     doLast {
         def logFile = file("$buildDir/resources/main/log4j2.xml")
         if (logFile.exists()) {
@@ -70,7 +70,7 @@ tasks.getByName('processResources') {
             logFile.write(content, "utf-8")
         }
     }
-}
+}*/
 build {
     // dos2unix shell
     doFirst {
@@ -82,7 +82,7 @@ build {
     doLast {
         copy {
             def jarName = "${project.name}-${project.version}.jar"
-            from("$buildDir/libs/$jarName").into("$projectDir/docker").rename("$jarName", "${project.name}.jar")
+            from("$buildDir/libs/$jarName").into("$projectDir/docker/app").rename("$jarName", "${project.name}.jar")
         }
     }
 }

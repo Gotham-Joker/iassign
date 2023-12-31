@@ -1,0 +1,40 @@
+spring:
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: kafka:9092
+          auto-create-topics: true
+      bindings:
+        authService-in-0: # 给authService配置主题(消费者)
+          destination: auth_refresh.topic
+  #        authService-out-0: # 生产者
+  #          destination: auth_refresh.topic
+  mail:
+    host: smtp.sina.cn
+    port: 25
+    username: gt_joker@sina.com
+    password: 5c65af1c2c219381
+    properties:
+      mail.mime.splitlongparameters: false
+  datasource:
+    url: jdbc:mysql://mysql:3306/iassign?useUnicode=true&characterEncoding=utf-8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 123456
+  data:
+    redis:
+      host: redis
+  elasticsearch:
+    uris: http://es:9200
+upload:
+  path: /tmp
+  server-url: http://localhost:8080
+# 邮件开关
+mail:
+  enabled: false
+
+iassign:
+  web-url: http://localhost:4200
+  security:
+    token-ttl: 86400
