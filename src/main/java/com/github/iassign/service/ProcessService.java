@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.github.authorization.Authentication;
 import com.github.authorization.AuthenticationContext;
 import com.github.authorization.UserDetails;
+import com.github.core.Result;
 import com.github.iassign.Constants;
 import com.github.iassign.ProcessLogger;
 import com.github.iassign.core.dag.node.*;
@@ -24,6 +25,13 @@ import com.github.iassign.mapper.SysUserMapper;
 import com.github.iassign.vo.TaskAuthVO;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ClassicHttpRequest;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.support.ClassicRequestBuilder;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -32,6 +40,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -80,7 +90,6 @@ public class ProcessService {
         // interval(8,hour).subscribe(()=>expressionEvaluator.clear())
     }
 
-
     /**
      * 启动流程实例
      *
@@ -107,7 +116,7 @@ public class ProcessService {
         }
         definition.dag = definitionRu.dag;
 
-        ProcessInstance instance = processInstanceService.create(dto, definition.name, definitionRu, userDetails);
+        ProcessInstance instance = processInstanceService.create(dto, definition, definitionRu, userDetails);
 
         // 准备流转用的全局上下文变量
         Map<String, Object> contextVariables = new HashMap<>();
@@ -170,6 +179,79 @@ public class ProcessService {
     }
 
     /**
+     * 退回申请人之后重启流程
+     *
+     * @param dto
+     */
+    @Transactional
+    public Result restartInstance(ProcessStartDTO dto) {
+        // 先找出流程实例
+        ProcessInstance instance = processInstanceService.selectById(dto.instanceId);
+        // 进行各种校验
+        if (!Boolean.TRUE.equals(instance.returnable)) {
+            return Result.error(500, "流程不支持退回至发起人，禁止修改");
+        }
+        if (instance.status != ProcessInstanceStatus.RETURN) {
+            return Result.error(500, "流程不是退回发起人状态，禁止修改");
+        }
+        UserDetails userDetails = AuthenticationContext.details();
+        if (!instance.starter.equals(userDetails.id)) {
+            return Result.error(500, "只有发起人可以重新发起流程");
+        }
+        final Logger processLogger = ProcessLogger.logger(dto.instanceId);
+        processLogger.error("申请人重新发起流程，表单:{}", dto.formData);
+        // 保存表单变量，覆盖一些全局流程变量，并且更新流程实例的表单变量id
+        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
+        if (definitionRu == null) {
+            return Result.error(404, "流程图不存在或已被删除，流程启动失败");
+        }
+        // 继续往下执行
+        // 准备流转用的全局上下文变量
+        ProcessVariables processVariables = processVariablesService.selectById(instance.variableId);
+        Map<String, Object> contextVariables = JsonUtil.readValue(processVariables.data, Map.class);
+
+        // 如果有表单，就保存表单，并且解析里面的field和value
+        if (dto.formData != null && !dto.formData.isEmpty()) {
+            formService.updateInstance(instance.formInstanceId, dto.formData, 1);
+            // 解析出来的表单变量化为流程变量
+            formService.mergeVariables(instance.formInstanceId, contextVariables);
+        }
+        // 如果存在其他全局变量，也放进上下文中，将其和表单变量合并起来，存到数据库
+        if (dto.variables != null && !dto.variables.isEmpty()) {
+            contextVariables.putAll(dto.variables);
+        }
+        processVariables.data = JsonUtil.toJson(contextVariables);
+        processVariablesService.updateById(processVariables);
+
+        // 创建表达式计算器，用于处理各种动态条件
+        ExpressionEvaluator expressionEvaluator = new DefaultExpressionEvaluator(applicationContext);
+        // 初始化流程图，并获取开始节点
+        DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
+        StartNode startNode = dagGraph.startNode;
+
+        // 设置当前节点，刚启动的时候肯定是开始节点
+        instance.dagNodeId = startNode.id;
+        instance.status = ProcessInstanceStatus.RUNNING;
+        // 在ES中更新索引
+        try {
+            processInstanceIndexService.update(instance, contextVariables);
+        } catch (IOException e) {
+            processLogger.error("更新ES索引失败", e);
+            // 回滚事务
+            throw new RuntimeException("系统异常");
+        }
+        // 日志路由
+        processLogger.info("用户:{}[{}]，重新启动了流程，申请编号:{}", userDetails.username, userDetails.username, instance.id);
+        // 将当前流程放进去
+        contextVariables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
+        // 进入下一个环节
+        move(dagGraph, instance, contextVariables);
+        // 发邮件
+        processMailService.sendStartMail(instance);
+        return Result.success(dto.instanceId);
+    }
+
+    /**
      * 提交任务，进入下一个环节，返回新生成的任务
      *
      * @return 新生成的任务环节清单
@@ -190,11 +272,11 @@ public class ProcessService {
         UserDetails currentUser = AuthenticationContext.current().getDetails();
         TaskAuthVO taskAuthVO = processTaskService.validateAuthorize(currentUser.getId(), task);
         if (!taskAuthVO.canAudit) {
-            throw new ApiException(500, "当前用户无法审批");
+            throw new ApiException(500, "当前用户无权审批");
         }
         Logger processLogger = ProcessLogger.logger(instance.id);
         // 设置邮件接收人并批量发送
-        instance.emails = dto.emails;
+        instance.emails = dto.emails == null ? "" : dto.emails;
 
         ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(instance.ruId);
         DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
@@ -212,6 +294,8 @@ public class ProcessService {
         }
         // 提交审批意见 并发送邮件提醒，注意，此处是的邮件内容是 ”审批意见“
         ProcessOpinion processOpinion = processOpinionService.submitOpinion(currentUser, instance, task, dto);
+        // 发起人详细信息，有可能会需要到
+        SysUser sysUser;
         switch (dto.operation) {
             case APPROVE:
                 // ********* 把表单中的变量整合到上下文变量中(表单临时变量优先级低于任务临时变量dto.variables) *********
@@ -256,7 +340,7 @@ public class ProcessService {
                 move(dagGraph, instance, contextVariables);
                 break;
             case REJECT:
-                // 拒绝的话那流程就结束了(拒绝也可以当成是退回申请人)
+                // 拒绝的话那流程就结束了
                 processTaskService.reject(task);
                 instance.status = ProcessInstanceStatus.REJECTED;
                 instance.updateTime = new Date();
@@ -265,9 +349,10 @@ public class ProcessService {
                 processLogger.info("审批环节<{}>[{}]被<{}>[{}]拒绝", task.name, task.id, currentUser.username, currentUser.id);
                 // 把流程实例归档
                 // 给申请人发送通知，被拒绝了
-                SysUser sysUser = sysUserMapper.selectById(instance.starter);
+                sysUser = sysUserMapper.selectById(instance.starter);
                 processMailService.sendRejectMail(instance, task, processOpinion, sysUser.email);
                 sysMessageService.sendRejectMsg(instance, task, AuthenticationContext.details());
+                fallback(instance);
                 break;
             case BACK:
                 // 退回到指定的环节
@@ -288,6 +373,23 @@ public class ProcessService {
                 processMailService.sendBackMail(instance, task, processOpinion, emailSet);
                 // 发送站内信，有一个待办事项
                 sysMessageService.sendAsyncTodoMsg(instance, backwardTask, emailSet);
+                break;
+            case RETURN:
+                // 退回至发起人
+                if (!Boolean.TRUE.equals(instance.returnable)) {
+                    throw new ApiException(500, "该流程不支持回退至发起人");
+                }
+                processTaskService.returnToStarter(task);
+                instance.preHandlerId = currentUser.id;
+                instance.dagNodeId = dagGraph.startNode.id;
+                instance.status = ProcessInstanceStatus.RETURN;
+                instance.handlerId = instance.starter;
+                instance.handlerName = instance.starterName;
+                processInstanceService.updateById(instance);
+                // 给发起人发送一封回退邮件
+                sysUser = sysUserMapper.selectById(instance.starter);
+                processMailService.sendBackMail(instance, task, processOpinion, Collections.singleton(sysUser.email));
+                fallback(instance);
                 break;
             default:
                 throw new ApiException(500, "不支持的操作");
@@ -391,6 +493,43 @@ public class ProcessService {
         processTaskService.cancelByInstanceId(processInstance.id);
         // 更新ES索引
         processInstanceIndexService.updateStatus(processInstance);
+        fallback(processInstance);
+    }
+
+    /**
+     * 拒绝、失败、撤回时，执行fallback
+     *
+     * @param processInstance
+     */
+    public void fallback(ProcessInstance processInstance) {
+        CompletableFuture.runAsync(() -> {
+            Logger processLogger = ProcessLogger.logger(processInstance.id);
+            // 执行流程回调
+            ProcessDefinition definition = processDefinitionMapper.selectById(processInstance.definitionId);
+            if (StringUtils.hasText(definition.fallback)) {
+                ClassicHttpRequest get = ClassicRequestBuilder.get(definition.fallback)
+                        .addParameter("defId", definition.id)
+                        .addParameter("instId", processInstance.id)
+                        .addParameter("status", processInstance.status.name())
+                        .addParameter("starter", processInstance.starter).build();
+                try (CloseableHttpClient client = HttpClients.createDefault();
+                     CloseableHttpResponse response = client.execute(get)) {
+                    if (response.getCode() == 200) {
+                        HttpEntity responseEntity = response.getEntity();
+                        String string = EntityUtils.toString(responseEntity, StandardCharsets.UTF_8);
+                        if (StringUtils.hasText(string) && string.contains("\"code\":0")) {
+                            log.info("withdraw process，fallback:{}", string);
+                        } else {
+                            processLogger.error("withdraw process,executing fallback error,result:{}", string);
+                        }
+                    } else {
+                        processLogger.error("withdraw process,executing fallback error,http code:{}", response.getCode());
+                    }
+                } catch (Exception e) {
+                    processLogger.error("withdraw process,executing fallback error", e);
+                }
+            }
+        }, threadPoolTaskExecutor);
     }
 
     @Transactional
@@ -433,4 +572,6 @@ public class ProcessService {
         executeAsync(dagGraph, (ExecutableNode) dagNode, task, instance, context, authentication);
         return processTaskService.auditListAfter(instance.id, taskId);
     }
+
+
 }

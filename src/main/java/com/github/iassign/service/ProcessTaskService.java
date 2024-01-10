@@ -75,15 +75,25 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * @return 退回到指定的任务
      */
     public ProcessTask back(ProcessTask task, String backwardTaskId) {
+        // 执行校验
         if (!StringUtils.hasText(backwardTaskId)) {
             throw new ApiException(422, "请指定回退环节");
         }
-        // 当前任务标记为退回
-        task.status = ProcessTaskStatus.BACK;
-        updateById(task);
-
         // 从指定的任务复制一个新任务出来
         ProcessTask backwardTask = processTaskMapper.selectById(backwardTaskId);
+        if (!Boolean.TRUE.equals(backwardTask.userNode)) {
+            throw new ApiException(500, "无法回退至非用户节点");
+        }
+        if (backwardTask.status == PENDING || backwardTask.status == CLAIMED || backwardTask.status == ASSIGNED) {
+            throw new ApiException(500, "无法回退至正在审批的环节");
+        }
+        // 校验结束
+
+        // 当前任务标记为退回
+        task.status = ProcessTaskStatus.BACK;
+        task.updateTime = new Date();
+        updateById(task);
+
         ProcessTask copyTask = new ProcessTask();
         copyTask.definitionId = backwardTask.definitionId;
         copyTask.instanceId = backwardTask.instanceId;
@@ -94,6 +104,8 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         copyTask.name = backwardTask.name;
         copyTask.status = PENDING; // 新的回退任务是待受理状态
         copyTask.userNode = backwardTask.userNode;
+        copyTask.fileRequired = backwardTask.fileRequired;
+        copyTask.assign = backwardTask.assign;
         copyTask.createTime = new Date();
         copyTask.countersign = backwardTask.countersign;
         // 如果是会签，则自动受理
@@ -185,9 +197,31 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         task.instanceId = instance.id;
         task.dagNodeId = startNode.id;
         task.userNode = false; // 开始节点一定不是用户环节，而是系统环节
+        task.assign = false;
+        task.countersign = false;
+        task.fileRequired = false;
         task.handlerId = instance.starter; // 开始节点肯定是发起人提交的
         task.name = startNode.label;
         task.status = ProcessTaskStatus.SUCCESS;
+        task.createTime = new Date();
+        processTaskMapper.insert(task);
+        return task;
+    }
+
+    /**
+     * 创建回退至发起人的审批任务
+     *
+     * @return
+     */
+    public ProcessTask createReturnStartTask(ProcessInstance instance, StartNode startNode) {
+        ProcessTask task = new ProcessTask();
+        task.definitionId = instance.definitionId;
+        task.instanceId = instance.id;
+        task.dagNodeId = startNode.id;
+        task.userNode = true; // 允许审批
+        task.handlerId = instance.starter; // 开始节点肯定是发起人提交的
+        task.name = startNode.label;
+        task.status = CLAIMED; // 已受理，等待审批
         task.createTime = new Date();
         task.countersign = false;
         processTaskMapper.insert(task);
@@ -214,6 +248,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         task.status = status;
         task.createTime = new Date();
         task.countersign = false;
+        task.assign = false;
         task.userNode = false;
         processTaskMapper.insert(task);
         return task;
@@ -433,7 +468,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
      * @param vo
      */
     private void completeCandidates(ProcessTask task, TaskAuthVO vo) {
-        if (task.status == PENDING || (task.countersign && task.status == CLAIMED)) {
+        if (task.status == PENDING || task.status == CLAIMED) {
             // 构造可审批人员和角色清单，让用户能知道现在该由谁审批
             // 填写任务的可审批人员和可审批角色清单
             List<ProcessTaskAuth> list = processTaskAuthService.selectAuthByTaskId(task.id);
@@ -509,5 +544,69 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
             }
         }
         return true;
+    }
+
+    /**
+     * 取回任务
+     *
+     * @param userDetails
+     * @param taskId
+     */
+    @Transactional
+    public Result reclaim(UserDetails userDetails, String taskId) {
+        ProcessTask task = processTaskMapper.selectById(taskId);
+        ProcessInstance instance = processInstanceMapper.selectById(task.instanceId);
+        if (instance.status != ProcessInstanceStatus.RUNNING) {
+            return Result.error(500, "流程不是运行状态，取回失败");
+        }
+        if (Boolean.TRUE.equals(task.countersign)) {
+            return Result.error(500, "该审批节点[" + task.name + "]属于会签环节，无法取回");
+        }
+        Logger processLogger = ProcessLogger.logger(task.instanceId);
+        ProcessTask nextUserTask = processTaskMapper.selectUserTaskAfter(instance.id, taskId);
+        if (nextUserTask == null) {
+            return Result.error(500, "下一个经办节点不存在，无法取回");
+        }
+        // 找出下一个用户审批节点，如果不存在下一审批节点、下一审批节点不是待受理状态或者下一审批节点是会签节点，不允许取回
+        if (nextUserTask.status != PENDING || Boolean.TRUE.equals(nextUserTask.countersign)) {
+            return Result.error(500, "下一个经办节点[" + nextUserTask.name + "]已被受理或者已审批，无法取回");
+        }
+        processLogger.info("用户{}正在尝试取回已办事项:[{}]{},系统尝试关闭下一待办事项:[{}]<{}>", userDetails.id, task.id, task.name,
+                nextUserTask.id, nextUserTask.name);
+        // 1. 给下一环节的处理人发送被取回的通知
+        // 1.1 先查找可审批的角色，提取这些人的邮箱
+        Set<Tuple<String, String>> tuples = processTaskAuthService.selectRoleUserMailByTaskId(nextUserTask.id);
+        Set<String> emailSet = tuples.stream().filter(tuple -> tuple.v != null && MAIL_PATTERN.matcher(tuple.v).find())
+                .map(tuple -> tuple.v).collect(Collectors.toSet());
+        // 1.2 再查找可审批的用户，同样是提取邮箱
+        tuples = processTaskAuthService.selectUserMailByTaskId(taskId);
+        tuples.stream().filter(tuple -> tuple.v != null && MAIL_PATTERN.matcher(tuple.v).find())
+                .forEach(tuple -> emailSet.add(tuple.v));
+
+        // 2. 删除由当前节点产生的所有后续节点
+        processTaskMapper.deleteAfter(instance.id, taskId);
+        // 3. 删除下一审批人环节和相关授权
+        processTaskAuthService.deleteByTaskId(nextUserTask.id);
+        // 4. 删除当前审批人提交的审批意见
+        processOpinionService.deleteByTaskIdAndUserId(taskId, userDetails.id);
+        // 5. 流程实例也进行回退
+        instance.dagNodeId = task.dagNodeId;
+        instance.preHandlerId = task.preHandlerId;
+        instance.handlerId = userDetails.id; // 当前审批人信息
+        instance.handlerName = userDetails.username; // 当前审批人信息
+        processInstanceMapper.updateById(instance);
+        task.status = CLAIMED;
+        task.formInstanceId = null;
+        processTaskMapper.updateById(task);
+        // 发送邮件通知
+        processLogger.info("删除下一经办节点<{}>[{}]，系统执行取回，并邮件通知以下人员:{}", nextUserTask.name, nextUserTask.name, emailSet);
+        processMailService.sendReclaimMail(instance, task, emailSet);
+        return Result.success();
+    }
+
+    public void returnToStarter(ProcessTask task) {
+        task.status = RETURN;
+        task.updateTime = new Date();
+        updateById(task);
     }
 }

@@ -7,6 +7,7 @@ import java.util.List;
 
 @Data
 public class ProcessDefinitionDetailVO {
+    private String fallback;
     public String id;
     public String name;
     public String seqNo;
@@ -19,6 +20,7 @@ public class ProcessDefinitionDetailVO {
     public String creator; // 创建人
     public String groupName;
     public String managers;
+    private Boolean returnable; // 是否允许退回至申请人
     public List<String> deptIds; // 已部署的部门信息
 
     public ProcessDefinitionDetailVO() {
@@ -38,5 +40,7 @@ public class ProcessDefinitionDetailVO {
         this.groupName = definition.groupName;
         this.managers = definition.managers;
         this.deptIds = deptIds;
+        this.returnable = definition.returnable;
+        this.fallback = definition.fallback;
     }
 }

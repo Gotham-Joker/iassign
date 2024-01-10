@@ -34,7 +34,11 @@ public enum ProcessTaskStatus implements IEnum<Integer> {
     /**
      * 失败
      */
-    FAILED(7);
+    FAILED(7),
+    /**
+     * 退回申请人
+     */
+    RETURN(8);
 
     private final Integer status;
 

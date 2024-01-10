@@ -15,13 +15,8 @@ import com.github.core.PageResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
-
-import static com.github.iassign.Constants.DATETIME_FORMAT;
-import static com.github.iassign.Constants.DATE_PICKER_FORMAT;
 
 @Service
 public class FormService {
@@ -201,5 +196,9 @@ public class FormService {
      */
     public void save(FormDefinition definition) {
         formDefinitionMapper.insert(definition);
+    }
+
+    public FormInstance selectInstance(String formInstanceId) {
+        return formInstanceMapper.selectById(formInstanceId);
     }
 }

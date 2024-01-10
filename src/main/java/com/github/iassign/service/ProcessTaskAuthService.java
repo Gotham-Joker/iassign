@@ -7,8 +7,8 @@ import com.github.iassign.entity.ProcessTaskAuth;
 import com.github.iassign.mapper.ProcessTaskAuthMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -59,11 +59,32 @@ public class ProcessTaskAuthService {
         processTaskAuthMapper.insert(auth);
     }
 
+    /**
+     * 按角色查找所有可审批人的邮件 k:id v:email,会忽略type=0(即人员)的授权
+     * @param id
+     * @return
+     */
     public  Set<Tuple<String,String>> selectRoleUserMailByTaskId(String id) {
         return processTaskAuthMapper.selectRoleUserMailByTaskId(id);
+    }
+
+    /**
+     * 按用户查找所有可审批人的邮件 k:id v:email,会忽略type=1(即角色)的授权
+     * @param taskId
+     * @return
+     */
+    public Set<Tuple<String, String>> selectUserMailByTaskId(String taskId) {
+        return processTaskAuthMapper.selectUserMailByTaskId(taskId);
     }
 
     public List<ProcessTaskAuth> selectAuthByTaskId(String taskId) {
         return processTaskAuthMapper.selectAuthByTaskId(taskId);
     }
+
+    @Transactional
+    public void deleteByTaskId(String taskId) {
+        processTaskAuthMapper.deleteByTaskId(taskId);
+    }
+
+
 }

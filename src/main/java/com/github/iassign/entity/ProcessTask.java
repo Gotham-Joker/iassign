@@ -27,6 +27,8 @@ public class ProcessTask {
     public String dagNodeId; // 当前DAG节点ID
 
     public Boolean countersign; // 是否是会签节点 0-否 1-是
+    public Boolean fileRequired; // 必须上传附件
+    public Boolean assign; // 指派标志位： 是否可以指派 0-不可以 1-可以
     public Boolean userNode; // 是否是用户可以审批的环节(有些环节是不能审批的，是系统自动处理的)
     public ProcessTaskStatus status; // 状态
     public Date createTime;  // 开始时间

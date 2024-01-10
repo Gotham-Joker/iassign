@@ -18,7 +18,7 @@ public class ProcessTaskDTO {
     private String remark;  // 备注
     public String attachments; // 附件地址
     public String emails; // 邮件接收人列表
-    public TaskOperation operation; // 操作: 同意，回退，拒绝
+    public TaskOperation operation; // 操作: 同意，回退，拒绝，退回发起人
     public String backwardTaskId; // 回退到哪个任务
 
 

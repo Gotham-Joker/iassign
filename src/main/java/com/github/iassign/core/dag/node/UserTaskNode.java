@@ -18,6 +18,8 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
     public String userScript;
     public String roleScript;
     public Boolean countersign; // 是否是会签节点 true-是 false-否
+    public Boolean fileRequired; // 必须上传附件
+    public Boolean assign; // 是否可以指派
     private ExpressionEvaluator expressionEvaluator;
 
 
@@ -41,6 +43,10 @@ public class UserTaskNode extends DagNode implements ExpressionNode {
         roleListNode.forEach(node -> roleList.add(node.asText()));
         JsonNode countersignNode = data.get("countersign");
         this.countersign = countersignNode != null && countersignNode.asBoolean(false);
+        JsonNode fileRequiredNode = data.get("fileRequired");
+        this.fileRequired = fileRequiredNode != null && fileRequiredNode.asBoolean(false);
+        JsonNode assignNode = data.get("assign");
+        this.assign = assignNode != null && assignNode.asBoolean(false);
     }
 
 

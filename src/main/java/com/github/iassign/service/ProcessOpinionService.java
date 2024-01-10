@@ -136,4 +136,9 @@ public class ProcessOpinionService {
         PageHelper.startPage(page, size);
         return PageResult.of(processOpinionMapper.queryCheckedList(query));
     }
+
+    @Transactional
+    public void deleteByTaskIdAndUserId(String taskId,String userId) {
+        processOpinionMapper.deleteByTaskIdAndUserId(taskId, userId);
+    }
 }

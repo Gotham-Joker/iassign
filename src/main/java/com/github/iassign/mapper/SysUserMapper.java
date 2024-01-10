@@ -46,15 +46,24 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     List<SysUser> selectByRoleId(@Param("roleId") String roleId);
 
     @Select({"<script>",
-            "select id,username,email from sys_user <where>",
+            "select id,username,email from sys_user <where> ",
             "<if test='id!=null and id!=\"\"'>and id=#{id}</if>",
             "<if test='username!=null and username!=\"\"'>and username like CONCAT('%',#{username},'%')</if>",
             "<if test='email!=null and email!=\"\"'>and email like CONCAT('%',#{email},'%')</if>",
             "<if test='roleId!=null and roleId!=\"\"'>",
             "and exists (select 1 from sys_user_role ur where ur.role_id=#{roleId} and ur.user_id=sys_user.id)",
             "</if>",
-            "</where>",
-            "</script>"})
-    List<SysUserRoleDTO> selectByUserRole(SysUserRoleDTO dto);
+            "<if test='roleIdIn!=null and roleIdIn!=\"\"'>",
+            "and exists (select 1 from sys_user_role ur where ur.role_id in ",
+            "<foreach collection=\"roleIds\" item=\"item\" separator=\",\" open='(' close=')'> ",
+            "#{item}",
+            "</foreach> ",
+            "and ur.user_id=sys_user.id)",
+            "</if>",
+            "<if test='roleIdLike!=null and roleIdLike!=\"\"'>and exists (select 1 from sys_user_role ur where ur.role_id like CONCAT('%',#{roleIdLike},'%') and ur.user_id=sys_user.id)</if>",
+            "<if test='roleIdLikeLeft!=null and roleIdLikeLeft!=\"\"'>and exists (select 1 from sys_user_role ur where ur.role_id like CONCAT('%',#{roleIdLikeLeft}) and ur.user_id=sys_user.id)</if>",
+            "<if test='roleIdLikeRight!=null and roleIdLikeRight!=\"\"'>and exists (select 1 from sys_user_role ur where ur.role_id like CONCAT(#{roleIdLikeRight},'%') and ur.user_id=sys_user.id)</if>",
+            "</where></script>"})
+    List<SysUser> selectByUserRole(SysUserRoleDTO dto);
 
 }

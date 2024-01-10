@@ -10,6 +10,7 @@ public class CheckedListDTO {
     public String instanceId;
     public String instanceName;
     public String starterName;
+    public String taskId;
     public String taskName;
     public Date createTime;
     public TaskOperation operation;

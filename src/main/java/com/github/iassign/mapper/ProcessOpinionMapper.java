@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.github.iassign.dto.CheckedListDTO;
 import com.github.iassign.entity.ProcessOpinion;
 import com.github.iassign.vo.CheckedListQuery;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.springframework.stereotype.Repository;
@@ -37,7 +38,7 @@ public interface ProcessOpinionMapper extends BaseMapper<ProcessOpinion> {
     ProcessOpinion selectByTaskIdAndUserId(@Param("taskId") String taskId, @Param("userId") String userId);
 
     @Select({"<script>",
-            "select po.instance_id,pi.name instance_name,pi.starter_name,t.name task_name,po.create_time,po.operation ",
+            "select po.instance_id,pi.name instance_name,pi.starter_name,po.task_id,t.name task_name,po.create_time,po.operation ",
             "from t_process_opinion po inner join t_process_instance pi ",
             "on po.user_id=#{userId} and po.instance_id = pi.id inner join t_process_task t on po.task_id = t.id",
             "<where> ",
@@ -46,5 +47,8 @@ public interface ProcessOpinionMapper extends BaseMapper<ProcessOpinion> {
             "<if test='createTimeLe!=null and createTimeLe!=\"\"'>and po.create_time &lt;=#{createTimeLe}</if>",
             "</where> order by po.create_time desc</script>"})
     List<CheckedListDTO> queryCheckedList(CheckedListQuery query);
+
+    @Delete("delete from t_process_opinion where task_id=#{taskId} and user_id=#{userId}")
+    void deleteByTaskIdAndUserId(@Param("taskId") String taskId, @Param("userId") String userId);
 
 }

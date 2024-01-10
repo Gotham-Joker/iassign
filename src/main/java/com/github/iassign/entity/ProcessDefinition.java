@@ -21,6 +21,7 @@ public class ProcessDefinition {
     public String icon;
     public String description;
     public Boolean status; // 部署状态 0-未部署 1-已部署
+    public Boolean returnable; // 是否允许回退至发起人 0-不允许 1-允许
     // 不是数据库字段
     @TableField(exist = false)
     public String dag;
@@ -29,6 +30,7 @@ public class ProcessDefinition {
     public String creator;
     public String groupName;
     public String managers; // 管理者id列表
+    public String fallback; // 流程失败时执行的接口回调
     public Date createTime;
     public Date updateTime;
 }

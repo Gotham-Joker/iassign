@@ -27,6 +27,7 @@ public class ProcessInstance {
     public String formInstanceId; // 发起人提交的表单实例ID
     public String variableId; // 全局变量ID
     public String dagNodeId; // 当前执行中的节点ID
+    public Boolean returnable; // 是否允许回退至发起人 0-不允许 1-允许
     public String emails; // 消息接收人id清单
     public ProcessInstanceStatus status; // 0-已撤回 1-执行中 2-成功 3-失败
     public Date createTime;

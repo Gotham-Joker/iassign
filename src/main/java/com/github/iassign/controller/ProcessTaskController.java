@@ -96,6 +96,17 @@ public class ProcessTaskController {
     }
 
     /**
+     * 取回
+     *
+     * @return
+     */
+    @PostMapping("reclaim")
+    public Result reclaim(@RequestParam String taskId) {
+        UserDetails userDetails = AuthenticationContext.details();
+        return processTaskService.reclaim(userDetails, taskId);
+    }
+
+    /**
      * 根据流程实例id查询审批历史
      *
      * @return
@@ -106,7 +117,7 @@ public class ProcessTaskController {
     }
 
     /**
-     * 提交任务(同意、拒绝、回退)
+     * 提交任务(同意、拒绝、回退、回退至发起人)
      *
      * @return
      */
@@ -129,7 +140,7 @@ public class ProcessTaskController {
 
 
     /**
-     * 回退失败的任务至上一审批环节
+     * 恢复失败的系统节点
      */
     @PostMapping("recover")
     public Result recover(@RequestParam String taskId) {

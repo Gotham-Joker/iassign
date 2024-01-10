@@ -14,6 +14,7 @@ import com.github.base.BaseController;
 import com.github.core.Result;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,11 +22,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -50,6 +51,10 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
         entity.id = generator.nextIdStr();
         ProcessDefinitionRu ru = processDefinitionRuService.saveIfAbsent(entity);
         entity.ruId = ru.id;
+        if (!StringUtils.hasText(entity.groupName)) {
+            entity.groupName = "";
+        }
+        entity.returnable = false;
         processDefinitionService.save(entity);
         return Result.success(entity.id);
     }
@@ -75,7 +80,7 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
         String deptId = AuthenticationContext.details().deptId;
         List<String> deptIds = Stream.of(deptId, "ALL").collect(Collectors.toList());
         Map<String, List<ProcessDefinition>> group = processDefinitionService.selectUsersDefinitions(keyword, deptIds).stream()
-                .collect(Collectors.groupingBy(ProcessDefinition::getGroupName));
+                .filter(pd->Objects.nonNull(pd.groupName)).collect(Collectors.groupingBy(ProcessDefinition::getGroupName));
         return Result.success(group);
     }
 
@@ -100,16 +105,12 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
     /**
      * 查看流程图
      *
-     * @param id
+     * @param ruId
      * @return
      */
     @GetMapping("dag")
-    public Result dag(@RequestParam String id) {
-        ProcessDefinition definition = processDefinitionService.selectById(id);
-        if (definition == null) {
-            return Result.error(404, "流程定义不存在");
-        }
-        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(definition.ruId);
+    public Result dag(@RequestParam String ruId) {
+        ProcessDefinitionRu definitionRu = processDefinitionRuService.selectById(ruId);
         if (definitionRu == null) {
             return Result.error(404, "流程图不存在");
         }

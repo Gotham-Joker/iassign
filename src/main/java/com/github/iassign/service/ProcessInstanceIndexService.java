@@ -14,9 +14,6 @@ import co.elastic.clients.elasticsearch.core.search.HitsMetadata;
 import co.elastic.clients.elasticsearch.indices.ExistsIndexTemplateRequest;
 import co.elastic.clients.elasticsearch.indices.PutIndexTemplateRequest;
 import co.elastic.clients.elasticsearch.indices.PutIndexTemplateResponse;
-import co.elastic.clients.json.jackson.JacksonJsonpMapper;
-import co.elastic.clients.transport.ElasticsearchTransport;
-import co.elastic.clients.transport.rest_client.RestClientTransport;
 import co.elastic.clients.util.ObjectBuilder;
 import com.github.authorization.UserDetails;
 import com.github.core.ApiException;
@@ -35,11 +32,8 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.elasticsearch.client.RestClient;
-import org.elasticsearch.client.RestClientBuilder;
 import org.redisson.Redisson;
 import org.redisson.api.RLock;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -70,15 +64,11 @@ public class ProcessInstanceIndexService {
     private final FormService formService;
     private final ProcessDefinitionService processDefinitionService;
     private final Redisson redisson;
-    @Value("${es.certificate.path:/http_ca.crt}")
-    private String esCertificatePath;
 
-    public ProcessInstanceIndexService(RestClientBuilder restClientBuilder, UploadService uploadService,
+    public ProcessInstanceIndexService(ElasticsearchClient esClient, UploadService uploadService,
                                        ProcessTaskService processTaskService, FormService formService,
                                        ProcessDefinitionService processDefinitionService, Redisson redisson) {
-        RestClient restClient = restClientBuilder.build();
-        ElasticsearchTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
-        this.esClient = new ElasticsearchClient(transport);
+        this.esClient = esClient;
         this.uploadService = uploadService;
         this.processTaskService = processTaskService;
         this.processDefinitionService = processDefinitionService;
@@ -145,6 +135,62 @@ public class ProcessInstanceIndexService {
         String year = index.createTime.split("-")[0];
         esClient.index(i -> i.index(INDEX_NAME + "-" + year).id(index.id)
                 .document(index));
+    }
+
+    /**
+     * 更新申请表中的内容
+     *
+     * @param instance
+     * @param contextVariables
+     * @throws IOException
+     */
+    public void update(ProcessInstance instance, Map<String, Object> contextVariables) throws IOException {
+        String year = DateUtil.format(instance.createTime, "yyyy");
+        ProcessInstanceIndex index = new ProcessInstanceIndex();
+        index.variables = contextVariables;
+        if (!CollectionUtils.isEmpty(contextVariables)) {
+            StringBuilder content = new StringBuilder();
+            contextVariables.forEach((key, value) -> {
+                if (value != null) {
+                    content.append(value).append(";");
+                }
+            });
+            index.content = content.toString();
+        }
+        esClient.update(u -> u.index(INDEX_NAME + "-" + year)
+                .id(instance.id).doc(index), ProcessInstanceIndex.class);
+    }
+
+
+    /**
+     * 更新流程实例的状态
+     *
+     * @param instance
+     */
+    public void updateStatus(ProcessInstance instance) {
+        ProcessInstanceIndex index = new ProcessInstanceIndex();
+        index.status = instance.status.name();
+        String year = DateUtil.format(instance.createTime, "yyyy");
+        try {
+            esClient.update(u -> u.index(INDEX_NAME + "-" + year)
+                    .id(instance.id).doc(index), ProcessInstanceIndex.class);
+        } catch (IOException e) {
+            log.error("ES索引更新失败", e);
+            throw new ApiException(500, "ES索引更新失败");
+        }
+    }
+
+    public void delete(ProcessInstance instance) {
+        String year = DateUtil.format(instance.createTime, "yyyy");
+        DeleteResponse response;
+        try {
+            log.error("流程启动时异常，删除ES中的文档:{}", instance.id);
+            response = esClient.delete(d -> d.index(INDEX_NAME + "-" + year)
+                    .id(instance.id));
+            log.info("流程启动时异常，删除ES中的文档:{},结果:{}", instance.id, response.result());
+        } catch (IOException e) {
+            log.error("ES删除文档失败，需要手动删除文档:" + instance.id, e);
+        }
     }
 
     /**
@@ -409,36 +455,7 @@ public class ProcessInstanceIndexService {
         return url;
     }
 
-    /**
-     * 更新流程实例的状态
-     *
-     * @param instance
-     */
-    public void updateStatus(ProcessInstance instance) {
-        ProcessInstanceIndex index = new ProcessInstanceIndex();
-        index.status = instance.status.name();
-        String year = DateUtil.format(instance.createTime, "yyyy");
-        try {
-            esClient.update(u -> u.index(INDEX_NAME + "-" + year)
-                    .id(instance.id).doc(index), ProcessInstanceIndex.class);
-        } catch (IOException e) {
-            log.error("ES索引更新失败", e);
-            throw new ApiException(500, "ES索引更新失败");
-        }
-    }
 
-    public void delete(ProcessInstance instance) {
-        String year = DateUtil.format(instance.createTime, "yyyy");
-        DeleteResponse response;
-        try {
-            log.error("流程启动时异常，删除ES中的文档:{}", instance.id);
-            response = esClient.delete(d -> d.index(INDEX_NAME + "-" + year)
-                    .id(instance.id));
-            log.info("流程启动时异常，删除ES中的文档:{},结果:{}", instance.id, response.result());
-        } catch (IOException e) {
-            log.error("ES删除文档失败，需要手动删除文档:" + instance.id, e);
-        }
-    }
 
     /*private void dynamicSearch() {
         if (index.variables != null && !index.variables.isEmpty()) {

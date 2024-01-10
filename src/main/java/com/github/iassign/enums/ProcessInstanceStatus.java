@@ -7,7 +7,8 @@ public enum ProcessInstanceStatus implements IEnum<Integer> {
     RUNNING(1),
     SUCCESS(2),
     FAILED(3),
-    REJECTED(4); // 退回申请人
+    REJECTED(4), // 拒绝
+    RETURN(5); // 退回至申请人
 
     private final Integer status;
 

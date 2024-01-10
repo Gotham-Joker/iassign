@@ -20,4 +20,5 @@ public class ProcessStartDTO {
     public String starter;
     // 邮件接收人
     public String emails;
+    public String instanceId;
 }

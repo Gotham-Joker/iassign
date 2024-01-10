@@ -13,10 +13,7 @@ import com.github.iassign.core.dag.node.ExecutableNode;
 import com.github.iassign.core.dag.node.UserTaskNode;
 import com.github.iassign.dto.ProcessInstanceSnapshot;
 import com.github.iassign.dto.ProcessStartDTO;
-import com.github.iassign.entity.ProcessDefinitionRu;
-import com.github.iassign.entity.ProcessInstance;
-import com.github.iassign.entity.ProcessTask;
-import com.github.iassign.entity.ProcessVariables;
+import com.github.iassign.entity.*;
 import com.github.iassign.enums.ProcessInstanceStatus;
 import com.github.iassign.enums.ProcessTaskStatus;
 import com.github.iassign.mapper.FormInstanceMapper;
@@ -85,12 +82,13 @@ public class ProcessInstanceService {
         return Result.success(vo);
     }
 
-    public ProcessInstance create(ProcessStartDTO dto, String definitionName, ProcessDefinitionRu definitionRu, UserDetails userDetails) {
+    public ProcessInstance create(ProcessStartDTO dto, ProcessDefinition definition, ProcessDefinitionRu definitionRu, UserDetails userDetails) {
         ProcessInstance instance = new ProcessInstance();
         // 插入数据库之前就应该生成这个id，后面要用
         instance.id = globalIdGenerator.nextIdStr();
         instance.definitionId = dto.definitionId;
-        instance.name = definitionName;
+        instance.name = definition.name;
+        instance.returnable = definition.returnable;
         instance.ruId = definitionRu.id;
         instance.emails = dto.emails == null ? "" : dto.emails;
         instance.starter = dto.starter;
@@ -131,16 +129,19 @@ public class ProcessInstanceService {
         task.formId = userTaskNode.formId;
         // 处理会签标志
         task.countersign = Boolean.TRUE.equals(userTaskNode.countersign);
+        // 是否必须上传文件
+        task.fileRequired = Boolean.TRUE.equals(userTaskNode.fileRequired);
+        task.assign = Boolean.TRUE.equals(userTaskNode.assign);
         // 会签节点自动标记为已认领
         if (task.countersign) {
             task.status = ProcessTaskStatus.CLAIMED;
         }
         processTaskService.updateById(task);
-        processLogger.info("创建待审批任务:<{}>[{}]，是否是'会签':{}", task.name, task.id, task.countersign);
+        processLogger.info("创建待办:<{}>[{}]，会签:{}", task.name, task.id, task.countersign);
         variables.put(Constants.INSTANCE, new ProcessInstanceSnapshot(instance));
         // 授权，谁可以审批
         Set<String> emailSet = processTaskService.authorize(instance, task, userTaskNode, variables);
-        processLogger.info("发送待审批邮件和站内信：{}", emailSet);
+        processLogger.info("通知待办:{}", emailSet);
         // 通知负责审批的人有新的待办任务,等他们完成任务后才继续下一步
         processMailService.sendTodoMail(instance, emailSet);
         sysMessageService.sendAsyncTodoMsg(instance, task, emailSet);
@@ -207,6 +208,8 @@ public class ProcessInstanceService {
             }
             processTaskService.updateById(task);
             processInstanceMapper.updateById(instance);
+            // 失败节点可能不需要fallback
+//            processFallbackService.fallback(instance);
             return null;
         }
         // 流程是否已被撤回？

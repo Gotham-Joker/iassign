@@ -110,7 +110,7 @@ public class SysUserService extends BaseService<SysUser> {
         return avatarUrl;
     }
 
-    public PageResult<SysUserRoleDTO> selectByUserRole(Integer page, Integer size, SysUserRoleDTO dto) {
+    public PageResult<SysUser> selectByUserRole(Integer page, Integer size, SysUserRoleDTO dto) {
         PageHelper.startPage(page, size);
         return PageResult.of(sysUserMapper.selectByUserRole(dto));
     }
@@ -137,5 +137,18 @@ public class SysUserService extends BaseService<SysUser> {
                 }
             }
         }
+    }
+
+    /**
+     * 获取部门主管，含副主管
+     * @param deptId
+     * @return
+     */
+    public List<SysUser> selectExecutives(String deptId) {
+        String masterId = deptId + "MA01";
+        String viceMasterId = deptId + "VMA01";
+        SysUserRoleDTO dto = new SysUserRoleDTO();
+        dto.roleIdIn = masterId + "," + viceMasterId;
+        return sysUserMapper.selectByUserRole(dto);
     }
 }

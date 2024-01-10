@@ -26,7 +26,7 @@ public interface ProcessDefinitionMapper extends BaseMapper<ProcessDefinition> {
     List<String> selectDeployDepartments(@Param("definitionId") String id);
 
     @Select({"<script>",
-            "select d.id,d.name,d.description,d.form_id,d.group_name,d.seq_no,d.icon from t_process_definition d ",
+            "select d.id,d.name,d.description,d.form_id,d.ru_id,d.group_name,d.seq_no,d.icon from t_process_definition d ",
             "<where> ",
             " exists (select 1 from t_process_definition_auth dd where dd.definition_id=d.id ",
             " and dd.dept_id in ",

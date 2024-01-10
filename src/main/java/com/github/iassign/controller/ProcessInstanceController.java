@@ -57,7 +57,6 @@ public class ProcessInstanceController {
 
     @GetMapping("log")
     public void downloadLog(@RequestParam String instanceId, HttpServletResponse response) throws IOException {
-
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + instanceId + ".log");
         response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE);
         ServletOutputStream out = response.getOutputStream();

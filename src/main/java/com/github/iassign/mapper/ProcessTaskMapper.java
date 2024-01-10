@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.github.iassign.vo.ProcessTaskTodoQuery;
 import com.github.iassign.entity.ProcessTask;
 import com.github.iassign.vo.TaskTodoVO;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -37,5 +38,11 @@ public interface ProcessTaskMapper extends BaseMapper<ProcessTask> {
 
     @Update("update t_process_task set status=7 where instance_id=#{instanceId} and status between 0 and 3")
     void cancelByInstanceId(@Param("instanceId") String instanceId);
+
+    @Select("select * from t_process_task where instance_id=#{instanceId} and id > #{taskId} and user_node=1 order by id asc limit 1")
+    ProcessTask selectUserTaskAfter(@Param("instanceId") String instanceId, @Param("taskId") String taskId);
+
+    @Delete("delete from t_process_task where instance_id=#{instanceId} and id > #{taskId}")
+    void deleteAfter(@Param("instanceId") String instanceId, @Param("taskId") String taskId);
 
 }

@@ -181,8 +181,10 @@ create table t_process_definition
 	create_time datetime null,
 	update_time datetime null,
 	group_name varchar(255) null,
+	fallback varchar(255) comment '流程失败时回调的接口'
 	ru_id varchar(48) null comment '总是关联最新的流程图版本',
-	managers varchar(100) null comment '流程数据管理者id列表'
+	managers varchar(100) null comment '流程数据管理者id列表',
+	returnable tinyint(2) null comment '是否可退回申请人 0-否 1-是'
 )
 charset=utf8mb4;
 
@@ -226,7 +228,8 @@ create table t_process_instance
 	create_time datetime null,
 	update_time datetime null,
 	ru_id varchar(64) null comment '运行时id，关联t_process_definition_ru表',
-	emails longtext null comment '邮件发送清单'
+	emails longtext null comment '邮件发送清单',
+    returnable tinyint(2) null comment '是否可退回申请人 0-否 1-是'
 )
 comment '流程实例表' charset=utf8mb4;
 
@@ -279,7 +282,9 @@ create table t_process_task
 	create_time datetime null,
 	update_time datetime null,
 	user_node tinyint not null comment '是否是用户审批环节：0-不是（系统自动处理） 1：是',
-	countersign tinyint(2) null comment '会签标志 0-否 1-是'
+	countersign tinyint(2) null comment '会签标志 0-否 1-是',
+	file_required tinyint(2) null comment '是否必须上传附件 0-否 1-是',
+	assign tinyint(2) null comment '是否可以指派 0-否 1-是'
 )
 comment '流程任务表' charset=utf8mb4;
 

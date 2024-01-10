@@ -218,6 +218,21 @@ public class ProcessMailService {
     }
 
     /**
+     * 发送审批被取回的邮件通知
+     */
+    public void sendReclaimMail(ProcessInstance instance, ProcessTask task, Set<String> emailSet) {
+        String emails = instance.emails;
+        if (StringUtils.hasText(instance.emails)) {
+            Set<String> set = Arrays.stream(emails.split(",")).filter(Objects::nonNull)
+                    .filter(email -> MAIL_PATTERN.matcher(email).find()).collect(Collectors.toSet());
+            emailSet.addAll(set);
+        }
+        String subject = instance.starterName + "【" + instance.name + "】已被经办【" + task.name + "】取回";
+        String content = "<!doctype html><html><div>流程被取回通知：申请单号【" + instance.id + "】。经办：【" + task.name + "】。可登录系统查看: <a href=\"" + generateRouteUrl(task.instanceId) + "\">点击跳转至系统(提示：请使用edge浏览器打开，若不幸打开了ie，请复制ie浏览器地址栏，粘贴至edge的地址栏)</a></div></html>";
+        send(TAG + subject, content, emailSet, null, null);
+    }
+
+    /**
      * 发送同意审批的邮件
      *
      * @param instance
@@ -334,4 +349,5 @@ public class ProcessMailService {
         }
         return attachmentsPart.toString();
     }
+
 }
