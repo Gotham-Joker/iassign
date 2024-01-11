@@ -63,7 +63,7 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
     @DeleteMapping
     public Result delete(@RequestParam Serializable id) {
         // 删除与之关联的流程图
-        processDefinitionRuService.deleteByDefId(id);
+        processDefinitionRuService.removeUnused(id.toString(), null);
         // 删除与之关联的部署关系
         processDefinitionService.deleteAuth(id);
         return super.delete(id);
@@ -80,7 +80,7 @@ public class ProcessDefinitionController extends BaseController<ProcessDefinitio
         String deptId = AuthenticationContext.details().deptId;
         List<String> deptIds = Stream.of(deptId, "ALL").collect(Collectors.toList());
         Map<String, List<ProcessDefinition>> group = processDefinitionService.selectUsersDefinitions(keyword, deptIds).stream()
-                .filter(pd->Objects.nonNull(pd.groupName)).collect(Collectors.groupingBy(ProcessDefinition::getGroupName));
+                .filter(pd -> Objects.nonNull(pd.groupName)).collect(Collectors.groupingBy(ProcessDefinition::getGroupName));
         return Result.success(group);
     }
 

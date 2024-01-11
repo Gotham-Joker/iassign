@@ -39,22 +39,18 @@ public class ProcessDefinitionRuService {
         return processDefinitionRuMapper.selectById(id);
     }
 
-    public void deleteByDefId(Serializable id) {
-        processDefinitionRuMapper.deleteByDefId(id);
-    }
-
 
     /**
      * 删除未被引用的流程图
      *
      * @param definitionId
-     * @param perceiveId   需要保留的id
+     * @param reserveId   需要保留的id
      */
     @Transactional
-    public void removeUnused(String definitionId, String perceiveId) {
+    public void removeUnused(String definitionId, String reserveId) {
         Set<String> idSet = processDefinitionRuMapper.selectUnUsed(definitionId);
         for (String id : idSet) {
-            if (id.equals(perceiveId)) {
+            if (id.equals(reserveId)) {
                 idSet.remove(id);
                 break;
             }

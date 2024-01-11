@@ -12,9 +12,6 @@ import java.util.Set;
 
 @Repository
 public interface ProcessDefinitionRuMapper extends BaseMapper<ProcessDefinitionRu> {
-    @Delete("delete from t_process_definition_ru where definition_id=#{defId}")
-    void deleteByDefId(@Param("defId") Serializable id);
-
     @Select({"select ru.id from t_process_definition_ru ru where ru.definition_id=#{defId} and not exists ",
     "(select 1 from t_process_instance t where t.definition_id=#{defId} and t.ru_id=ru.id)"})
     Set<String> selectUnUsed(@Param("defId") String definitionId);
