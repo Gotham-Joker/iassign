@@ -422,7 +422,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
     }
 
     /**
-     * 校验审批权限，当前用户如果不能审批，那么返回的VO对象的canAudit为false
+     * 校验审批权限，当前用户如果不能审批，那么返回的VO对象的actionable为false
      *
      * @param userId
      * @param task
@@ -432,7 +432,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         TaskAuthVO vo = new TaskAuthVO();
 
         if (task.status != PENDING && task.status != CLAIMED && task.status != ASSIGNED) {
-            vo.canAudit = false;
+            vo.actionable = false;
             return vo;
         }
 
@@ -440,7 +440,7 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         // 1. 不在审批授权清单中不能审批
         Set<String> authorizeSet = processTaskAuthService.selectAuthorize(task.id, userId);
         if (CollectionUtils.isEmpty(authorizeSet)) {
-            vo.canAudit = false;
+            vo.actionable = false;
             completeCandidates(task, vo);
             return vo;
         }
@@ -448,12 +448,12 @@ public class ProcessTaskService extends BaseService<ProcessTask> {
         // 2. 同一个用户不能重复审批
         ProcessOpinion processOpinion = processOpinionService.selectByTaskIdAndUserId(task.id, userId);
         if (processOpinion != null) {
-            vo.canAudit = false;
+            vo.actionable = false;
             completeCandidates(task, vo);
             return vo;
         }
 
-        vo.canAudit = true;
+        vo.actionable = true;
 
         completeCandidates(task, vo);
         return vo;

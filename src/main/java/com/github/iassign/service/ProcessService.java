@@ -271,7 +271,7 @@ public class ProcessService {
         // 判断当前用户是否有权限审批
         UserDetails currentUser = AuthenticationContext.current().getDetails();
         TaskAuthVO taskAuthVO = processTaskService.validateAuthorize(currentUser.getId(), task);
-        if (!taskAuthVO.canAudit) {
+        if (!taskAuthVO.actionable) {
             throw new ApiException(500, "当前用户无权审批");
         }
         Logger processLogger = ProcessLogger.logger(instance.id);
