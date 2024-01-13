@@ -3,7 +3,7 @@ spring:
     stream:
       kafka:
         binder:
-          brokers: kafka:9092
+          brokers: 172.16.145.130:9092
           auto-create-topics: true
       bindings:
         authService-in-0: # 给authService配置主题(消费者)
@@ -18,18 +18,18 @@ spring:
     properties:
       mail.mime.splitlongparameters: false
   datasource:
-    url: jdbc:mysql://mysql:3306/iassign?useUnicode=true&characterEncoding=utf-8
+    url: jdbc:mysql://172.16.145.130:3306/iassign?useUnicode=true&characterEncoding=utf-8
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 123456
   data:
     redis:
-      host: redis
+      host: 172.16.145.130
   elasticsearch:
-    uris: http://es:9200
+    uris: http://172.16.145.130:9200
 upload:
   path: /tmp
-  server-url: http://localhost:8080
+  server-url: http://172.16.145.130:8080
 # 邮件开关
 mail:
   enabled: false

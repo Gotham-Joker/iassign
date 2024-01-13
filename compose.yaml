@@ -3,6 +3,8 @@ version: '3.1'
 services:
   redis:
     image: redis:latest
+    ports:
+      - "6379:6379"
   mysql:
     image: mysql
     command: --default-authentication-plugin=mysql_native_password
@@ -39,19 +41,19 @@ services:
 #      - ELASTICSEARCH_HOSTS=http://es:9200
 #    ports:
 #      - "5601:5601"
-  backend:
-    build:
-      context: ./docker/app
-    ports:
-      - "8080:8080"
-    environment:
-      # 设置java环境参数，其中upload.server-url和web-url改成容器外部地址，还有，需要邮件请配置SMTP地址
-      - JAVA_OPTS=-Dspring.profiles.active=docker -Dupload.server-url=http://172.16.145.130:8080 -Diassign.web-url=http://172.16.145.130
-  ui:
-    build:
-      context: ./docker/nginx
-    ports:
-      - "80:80"
-    environment:
-      # 后端接口地址，使用容器外部地址
-      - SERVER_URL=http://172.16.145.130:8080
+#  backend:
+#    build:
+#      context: ./docker/app
+#    ports:
+#      - "8080:8080"
+#    environment:
+#      # 设置java环境参数，其中upload.server-url和web-url改成容器外部地址，还有，需要邮件请配置SMTP地址
+#      - JAVA_OPTS=-Dspring.profiles.active=docker -Dupload.server-url=http://172.16.145.130:8080 -Diassign.web-url=http://172.16.145.130
+#  ui:
+#    build:
+#      context: ./docker/nginx
+#    ports:
+#      - "80:80"
+#    environment:
+#      # 后端接口地址，使用容器外部地址
+#      - SERVER_URL=http://172.16.145.130:8080
