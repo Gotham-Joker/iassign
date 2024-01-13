@@ -23,3 +23,9 @@ spring:
     multipart:
       max-file-size: 256MB
       max-request-size: 512MB
+server:
+  compression:
+    # 启用数据压缩
+    enabled: true
+    #返回的数据超过2KB开启数据压缩
+    min-response-size: 2KB
