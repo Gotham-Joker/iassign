@@ -5,6 +5,9 @@ services:
     image: redis:latest
     ports:
       - "6379:6379"
+    privileged: true
+    sysctls:
+      - net.core.somaxconn=1024
   mysql:
     image: mysql
     command: --default-authentication-plugin=mysql_native_password
