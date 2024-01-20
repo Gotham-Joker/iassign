@@ -6,8 +6,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.StreamUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,10 +40,14 @@ public class FileController {
      * @param md5
      */
     @GetMapping("download/{md5}/{fileName}")
-    public void download(@PathVariable String md5, @PathVariable String fileName, HttpServletResponse response) throws IOException {
+    public void download(@PathVariable String md5, @PathVariable String fileName, @RequestParam(required = false) String preview, HttpServletResponse response) throws IOException {
         File file = uploadService.getFile(md5);
-        response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE);
-        response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + URLEncoder.encode(fileName, "utf-8"));
+        if (StringUtils.hasText(preview)) {
+            response.setHeader(HttpHeaders.CONTENT_TYPE, MediaTypeFactory.getMediaType(fileName).orElse(MediaType.APPLICATION_OCTET_STREAM).toString());
+        } else {
+            response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_OCTET_STREAM_VALUE);
+            response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=" + URLEncoder.encode(fileName, "utf-8"));
+        }
         OutputStream out = response.getOutputStream();
         try (FileInputStream fis = new FileInputStream(file)) {
             StreamUtils.copy(fis, out);
