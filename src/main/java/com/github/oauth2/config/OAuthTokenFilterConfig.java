@@ -14,10 +14,9 @@ public class OAuthTokenFilterConfig {
     // 注册accessToken过滤器
     @Bean
     public FilterRegistrationBean oauthFilter(ObjectMapper objectMapper,
-                                              AuthorizationServerTokenService accessTokenService,
-                                              SysUserService sysUserService) {
+                                              AuthorizationServerTokenService accessTokenService) {
         FilterRegistrationBean<OAuthFilter> bean = new FilterRegistrationBean<>();
-        bean.setFilter(new OAuthFilter(objectMapper, accessTokenService, sysUserService));
+        bean.setFilter(new OAuthFilter(objectMapper, accessTokenService));
         bean.addUrlPatterns("/oauth-api/*");
         bean.setOrder(11);
         return bean;

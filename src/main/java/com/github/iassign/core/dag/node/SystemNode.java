@@ -81,8 +81,10 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
         AtomicReference<Object> HTTP_RESULT = new AtomicReference<>(null);
         // 发送HTTP
         if (StringUtils.hasText(url)) {
+            boolean isInternal = false;
             if (url.startsWith("/")) { // 内部访问
                 url = "http://127.0.0.1:8080" + url;
+                isInternal = true;
             }
             if (url.contains("${")) {
                 url = PlaceHolderUtils.replace(url, variables);
@@ -107,6 +109,9 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
                 default:
                     builder = ClassicRequestBuilder.post(url);
                     break;
+            }
+            if (isInternal && delegator != null) {
+                builder.addHeader(HttpHeaders.AUTHORIZATION, delegator.getCredentials());
             }
             String contentType = "application/json";
             String charset = "utf-8";

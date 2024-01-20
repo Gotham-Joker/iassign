@@ -1,10 +1,8 @@
 package com.github.oauth2.authorization;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.authorization.AccessTokenAuthentication;
-import com.github.authorization.AuthenticationContext;
-import com.github.authorization.Oauth2Authentication;
-import com.github.authorization.UserDetails;
+import com.github.authorization.*;
+import com.github.authorization.exception.OAuth2Exception;
 import com.github.core.Result;
 import com.github.iassign.entity.SysUser;
 import com.github.iassign.service.SysUserService;
@@ -24,13 +22,11 @@ import java.io.PrintWriter;
 
 public class OAuthFilter extends OncePerRequestFilter {
 
-    private final SysUserService sysUserService;
     private final AuthorizationServerTokenService accessTokenService;
     private final ObjectMapper objectMapper;
 
-    public OAuthFilter(ObjectMapper objectMapper, AuthorizationServerTokenService accessTokenService, SysUserService sysUserService) {
+    public OAuthFilter(ObjectMapper objectMapper, AuthorizationServerTokenService accessTokenService) {
         this.accessTokenService = accessTokenService;
-        this.sysUserService = sysUserService;
         this.objectMapper = objectMapper;
     }
 
@@ -49,15 +45,15 @@ public class OAuthFilter extends OncePerRequestFilter {
             }
         }
         try {
-            Oauth2Authentication oauth2Authentication = accessTokenService.parseAccessToken(accessToken);
-            SysUser sysUser = sysUserService.selectById(oauth2Authentication.getId());
-            UserDetails userDetails = new UserDetails();
-            BeanUtils.copyProperties(sysUser, userDetails);
-            AccessTokenAuthentication authentication = new AccessTokenAuthentication(userDetails.id);
-            authentication.setDetails(userDetails);
-            authentication.setAdmin(sysUser.admin);
+            Authentication authentication = accessTokenService.parseAccessToken(accessToken);
             AuthenticationContext.setAuthentication(authentication);
             filterChain.doFilter(request, response);
+        } catch (OAuth2Exception e) {
+            String result = objectMapper.writeValueAsString(Result.error(e.getCode(), e.getMessage()));
+            response.setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_UTF8_VALUE);
+            PrintWriter out = response.getWriter();
+            out.write(result);
+            out.close();
         } finally {
             AuthenticationContext.clearContext();
         }

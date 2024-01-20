@@ -45,12 +45,6 @@ public class AccessTokenFilter extends OncePerRequestFilter {
                 Authentication authentication = accessTokenService.parse(bearerToken);
                 AuthenticationContext.setAuthentication(authentication);
                 MDC.put(Result.TRACE_ID, bearerToken);
-            } else {
-                String serverName = request.getServerName();
-                // 内部访问
-                if (!"localhost".equals(serverName) && !"127.0.0.1".equals(serverName)) {
-                    throw new AuthenticationException("invalid token");
-                }
             }
             String path = request.getRequestURI();
 

@@ -1,14 +1,22 @@
 package com.github.oauth2.service.token;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.github.authorization.AccessTokenAuthentication;
+import com.github.authorization.Authentication;
 import com.github.authorization.Oauth2Authentication;
+import com.github.authorization.UserDetails;
 import com.github.authorization.exception.InvalidGrantException;
+import com.github.iassign.entity.SysUser;
+import com.github.iassign.service.AccessTokenService;
+import com.github.iassign.service.SysUserService;
 import com.github.oauth2.mapper.AuthorizationServerTokenMapper;
 import com.github.oauth2.model.OAuth2AccessToken;
 import com.github.oauth2.model.OAuth2AuthorizationCode;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.Date;
 import java.util.Optional;
@@ -19,6 +27,10 @@ import java.util.UUID;
 public class AuthorizationServerTokenService {
     @Autowired
     private AuthorizationServerTokenMapper authorizationServerTokenMapper;
+    @Autowired
+    private SysUserService sysUserService;
+    @Autowired
+    private AccessTokenService accessTokenService;
 
     public OAuth2AccessToken createAccessToken(OAuth2AuthorizationCode authorizationCode) {
         // 每次申请token都会使上一次申请的token失效（直接删掉吧）
@@ -59,14 +71,24 @@ public class AuthorizationServerTokenService {
         return accessToken;
     }
 
-    public Oauth2Authentication parseAccessToken(String accessToken) {
+    public Authentication parseAccessToken(String accessToken) {
         OAuth2AccessToken oAuth2AccessToken = Optional.ofNullable(authorizationServerTokenMapper.selectById(accessToken))
                 .orElseThrow(() -> new InvalidGrantException("Invalid access token"));
         if (oAuth2AccessToken.isAccessTokenExpired()) {
             throw new InvalidGrantException("access token expired");
         }
         String userId = oAuth2AccessToken.getUserId();
-        String clientId = oAuth2AccessToken.getClientId();
-        return new Oauth2Authentication(userId, clientId);
+        SysUser sysUser = sysUserService.selectById(userId);
+        UserDetails userDetails = new UserDetails();
+        BeanUtils.copyProperties(sysUser, userDetails);
+        AccessTokenAuthentication authentication = new AccessTokenAuthentication(userDetails.id);
+        String cachedToken = accessTokenService.retrieveByUserId(userId);
+        if (!StringUtils.hasText(accessToken)) {
+            cachedToken = accessTokenService.createAccessToken(userDetails).getAccessToken();
+        }
+        authentication.setDetails(userDetails);
+        authentication.setAdmin(sysUser.admin);
+        authentication.setCredentials(cachedToken);
+        return authentication;
     }
 }

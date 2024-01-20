@@ -447,6 +447,8 @@ public class ProcessService {
     }
 
     private void executeAsync(DagGraph dagGraph, ExecutableNode executableNode, ProcessTask task, ProcessInstance instance, Map<String, Object> variables, Authentication authentication) {
+        // 设置系统节点执行时的代理身份
+        executableNode.delegator = authentication;
         CompletableFuture.supplyAsync(() -> processInstanceService.handleExecutableNode(executableNode, task, instance, variables),
                 threadPoolTaskExecutor).whenComplete((result, err) -> {
             if (err == null) {
@@ -553,7 +555,7 @@ public class ProcessService {
         }
         Logger processLogger = ProcessLogger.logger(instance.id);
         DagGraph dagGraph = DagGraph.init(JsonUtil.readValue(definitionRu.dag, ArrayNode.class), expressionEvaluator);
-        final Map context = new HashMap<>();
+        final Map<String, Object> context = new HashMap<>();
         // 取出上下文变量
         if (StringUtils.hasText(task.variableId)) {
             ProcessVariables variables = processVariablesService.selectById(task.variableId);

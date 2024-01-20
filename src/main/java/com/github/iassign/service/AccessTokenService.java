@@ -92,4 +92,9 @@ public class AccessTokenService {
         redisTemplate.delete(AuthorizationConstant.USER_PERMISSION_KEY_PREFIX + userId);
     }
 
+    public String retrieveByUserId(String userId) {
+        BoundValueOperations<String, String> tokenOps = stringRedisTemplate.boundValueOps(AuthorizationConstant.ACCESS_TOKEN_KEY_PREFIX + userId);
+        //重复登录会导致前一个token失效
+        return tokenOps.get();
+    }
 }
