@@ -16,15 +16,6 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeUtility;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hc.client5.http.entity.mime.HttpMultipartMode;
-import org.apache.hc.client5.http.entity.mime.MultipartEntityBuilder;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.ClassicHttpRequest;
-import org.apache.hc.core5.http.ContentType;
-import org.apache.hc.core5.http.HttpEntity;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
-import org.apache.hc.core5.http.io.support.ClassicRequestBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.mail.MailProperties;
@@ -36,7 +27,6 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -54,9 +44,9 @@ public class ProcessMailService {
     private String webUrl;
     @Value("${mail.enabled:true}")
     private Boolean enableMail;
-    @Autowired
+    @Autowired(required = false)
     private JavaMailSender javaMailSender;
-    @Autowired
+    @Autowired(required = false)
     private MailProperties mailProperties;
 
     private final ObjectMapper objectMapper;
@@ -80,6 +70,10 @@ public class ProcessMailService {
     public void send(String subject, String content,
                      Collection<String> receivers, Collection<String> receiversCc,
                      List<File> attachments) {
+        if (javaMailSender == null) {
+            log.warn("Mail sender can't be used since the SMTP setting is not configured.");
+            return;
+        }
         try {
             boolean multipart = attachments != null && !attachments.isEmpty();
             MimeMessageHelper mimeMessageHelper = new MimeMessageHelper(javaMailSender.createMimeMessage(), multipart);
