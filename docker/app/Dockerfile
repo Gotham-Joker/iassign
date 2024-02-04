@@ -1,5 +1,5 @@
 # 也可以换成其他jdk17的docker镜像来构建
-FROM joengenduvel/jre17
+FROM gradle:jdk17-alpine
 MAINTAINER HONGTAO
 ADD iassign.jar /app/
 ADD entrypoint.sh /app/
