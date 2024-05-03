@@ -72,6 +72,8 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -147,10 +149,38 @@ public class ProcessInstanceIndexService {
         index.createTime = DateUtil.formatCn(processInstance.createTime);
         index.variables = contextVariables;
         index.status = processInstance.status.name();
+        Pattern pattern = Pattern.compile("<([a-z]+)[\\S\\s]*?>(?<content>[\\S\\s]+)</\\1>");
         if (!CollectionUtils.isEmpty(contextVariables)) {
             StringBuilder content = new StringBuilder();
             contextVariables.forEach((key, value) -> {
                 if (value != null) {
+                    if (value instanceof String) {
+                        String str = (String) value;
+                        Matcher matcher = pattern.matcher(str);
+                        // remove html tag
+                        while (matcher.find()) {
+                            String group = matcher.group(1);
+                            str = str.replaceAll("<" + group + "[\\S\\s]*?>", "").replaceAll("</" + group + ">", ";");
+                            matcher = pattern.matcher(str);
+                        }
+                        value = str;
+                    } else if (value instanceof ArrayList) {
+                        ArrayList list = (ArrayList) value;
+                        if (!list.isEmpty()) {
+                            List tmpList = new ArrayList();
+                            list.forEach(item -> {
+                                if (item instanceof LinkedHashMap) {
+                                    LinkedHashMap<?, ?> map = (LinkedHashMap<?, ?>) item;
+                                    if ("ok".equals(map.get("response"))) {
+                                        tmpList.add(map.get("name") + "");
+                                    }
+                                } else {
+                                    tmpList.add(item);
+                                }
+                            });
+                            value = tmpList;
+                        }
+                    }
                     content.append(value).append(";");
                 }
             });
