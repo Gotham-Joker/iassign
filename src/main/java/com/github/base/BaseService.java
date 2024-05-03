@@ -76,6 +76,9 @@ public class BaseService<T> {
                     case "eq":
                         wrapper.eq(col, value);
                         break;
+                    case "ne":
+                        wrapper.ne(col, value);
+                        break;
                     case "oda":
                         wrapper.orderByAsc(col);
                         break;
