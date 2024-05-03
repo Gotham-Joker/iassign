@@ -76,7 +76,7 @@ public class ProcessMailService {
 
     private final ObjectMapper objectMapper;
 
-    private final String TAG = "<I_ASSIGN>";
+    private final String TAG = "[I_ASSIGN]";
 
     public ProcessMailService() {
         objectMapper = new ObjectMapper();
