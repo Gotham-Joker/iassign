@@ -51,6 +51,7 @@ public class DefaultExpressionEvaluator implements ExpressionEvaluator {
         // 禁止不安全的api调用
         QLExpressRunStrategy.setForbidInvokeSecurityRiskMethods(true);
         this.runner = new ExpressRunner();
+        this.runner.addFunction("exit", new OperatorExit());
         if (context != null) {
             try {
                 this.runner.addFunctionOfServiceMethod("bean", context,

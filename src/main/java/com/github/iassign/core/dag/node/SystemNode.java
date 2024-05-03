@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.github.core.ApiException;
 import com.github.core.JsonUtil;
 import com.github.iassign.Constants;
+import com.github.iassign.core.expression.ExitValue;
 import com.github.iassign.core.expression.ExpressionEvaluator;
 import com.github.iassign.core.util.PlaceHolderUtils;
 import lombok.Getter;
@@ -203,7 +204,13 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
             if (HTTP_RESULT.get() != null) { // 先尝试放入http返回值
                 variables.put(Constants.HTTP_RESULT, HTTP_RESULT);
             }
-            this.expressionEvaluator.evaluate(script, variables);
+            Object expressionResult = this.expressionEvaluator.evaluate(script, variables);
+            if (expressionResult instanceof ExitValue) {
+                int value = ((ExitValue) expressionResult).getValue();
+                if (value != 0) {
+                    throw new RuntimeException(label + "[SystemNode] exit with value: " + value);
+                }
+            }
             variables.remove(Constants.HTTP_RESULT);
         }
     }
