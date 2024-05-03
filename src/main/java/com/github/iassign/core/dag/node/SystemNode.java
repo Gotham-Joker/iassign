@@ -202,7 +202,7 @@ public class SystemNode extends ExecutableNode implements ExpressionNode {
         // 执行脚本
         if (StringUtils.hasText(script)) {
             if (HTTP_RESULT.get() != null) { // 先尝试放入http返回值
-                variables.put(Constants.HTTP_RESULT, HTTP_RESULT);
+                variables.put(Constants.HTTP_RESULT, HTTP_RESULT.get());
             }
             Object expressionResult = this.expressionEvaluator.evaluate(script, variables);
             if (expressionResult instanceof ExitValue) {
