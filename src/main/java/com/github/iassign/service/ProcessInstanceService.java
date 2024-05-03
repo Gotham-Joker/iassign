@@ -233,6 +233,7 @@ public class ProcessInstanceService {
             }
             processTaskService.updateById(task);
             processInstanceMapper.updateById(instance);
+            processInstanceIndexService.updateStatus(instance);
             // 失败节点可能不需要fallback
 //            processFallbackService.fallback(instance);
             return null;

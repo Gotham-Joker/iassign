@@ -592,6 +592,7 @@ public class ProcessService {
         // 恢复流程状态为“运行中”
         instance.status = ProcessInstanceStatus.RUNNING;
         processInstanceService.updateById(instance);
+        processInstanceIndexService.updateStatus(instance);
         DagNode dagNode = dagGraph.obtainDagNode(instance.dagNodeId);
         // 开搞，恢复作业
         Authentication authentication = AuthenticationContext.current();
