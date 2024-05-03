@@ -66,7 +66,7 @@ public class DefaultExpressionEvaluator implements ExpressionEvaluator {
         DefaultContext<String, Object> context = new DefaultContext<>();
         context.putAll(variables);
         context.put(Constants.PROCESS_CONTEXT, new HashMap<String, Object>());
-        Object result = runner.execute(expression, context, null, true, false);
+        Object result = runner.execute(expression, context, null, false, false);
         Map<String, Object> variablesIN = (HashMap<String, Object>) context.get(Constants.PROCESS_CONTEXT);
         if (!CollectionUtils.isEmpty(variablesIN)) {
             variables.put(Constants.PROCESS_CONTEXT, variablesIN);
