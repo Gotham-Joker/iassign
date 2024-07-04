@@ -31,7 +31,7 @@ import java.util.Set;
 
 @Data
 public class ProcessTaskTodoQuery {
-    // 发起人统一认证
+    // 发起人ID
     public String starter;
     // 申请编号
     public String instanceId;

@@ -35,3 +35,4 @@ out/
 .vscode/
 docker/nginx/iassign-ui/
 docker/app/iassign.jar
+node_modules/
