@@ -13,6 +13,6 @@
 1. `gradle build`构建之后得到[docker/app/iassign.jar](docker/app/iassign.jar)
 2. 然后去前端项目执行`npm install && npm run build`，得到dist/iassign-ui文件夹
 ，将编译得到的iassign-ui文件夹复制到后端项目的[docker/nginx](docker/nginx)目录下
-3. 打开[compose.yml](compose.yaml)文件，将配置文件里面的`172.16.145.130`替换成你自己虚拟机的ip地址，
+3. 打开[compose.yml](compose.yaml)文件，将配置文件里面的`172.16.145.130`换成你自己的ip，
 如果你已经整合docker插件到idea，此时idea会显示启动按钮，先启动mysql和es，然后在mysql中初始化[ddl.sql](ddl.sql)，
 最后将其他所有项目启动起来。(ES首次启动时间可能较久，需要等待一会儿再启动后端项目)
